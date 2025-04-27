@@ -1,0 +1,7 @@
+*.mov
+*.h5
+lane_detection_cnn/dataset/
+traffic-sign/dataset/
+traffic_lights/dataset
+traffic_lights/lisa_dataset
+traffic_lights/classified_dataset
