@@ -10,7 +10,7 @@ world = client.load_world('Town01')
 
 # 2. Spawn the first vehicle at a random spawn point
 blueprint_library = world.get_blueprint_library()
-vehicle_bp = random.choice(blueprint_library.filter('vehicle.*'))
+vehicle_bp = blueprint_library.filter('vehicle.*')
 spawn_point = random.choice(world.get_map().get_spawn_points())
 vehicle = world.spawn_actor(vehicle_bp, spawn_point)
 
@@ -19,7 +19,9 @@ camera_bp = blueprint_library.find('sensor.camera.rgb')
 camera_bp.set_attribute('image_size_x', '800')
 camera_bp.set_attribute('image_size_y', '600')
 camera_bp.set_attribute('fov', '90')
-# Position: x=1.5m forward, z=2.4m above vehicle's center
+
+
+#Camera position and rotation
 camera_transform = carla.Transform(carla.Location(x=-4, z=4), carla.Rotation(pitch=-15))
 camera = world.spawn_actor(camera_bp, camera_transform, attach_to=vehicle)
 
@@ -28,7 +30,7 @@ pygame.init()
 display = pygame.display.set_mode((800, 600))
 pygame.display.set_caption("Carla Camera")
 
-# 5. Define callback to render camera images
+
 def show_image(image):
     # Convert raw CARLA image to a (H,W,3) NumPy array in RGB order
     array = np.frombuffer(image.raw_data, dtype=np.uint8)
