@@ -11,10 +11,10 @@ import pandas as pd
 from tensorflow.keras import layers
 
 
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 IMG_SIZE = (224,224)
 SEED = 123
-EPOCHS = 50
+EPOCHS = 20
 
 
 print("GPU Available:", tf.config.list_physical_devices('GPU'))
@@ -26,31 +26,6 @@ if gpus:
             [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=7168)])  # 8GB * 0.9
     except RuntimeError as e:
         print(e)
-
-
-def get_model_hash(model):
-    model_json = model.to_json()
-    return hashlib.md5(model_json.encode()).hexdigest()
-
-def save_model_with_hash(model, model_path="traffic_sign_model.h5", hash_path="model_hash.txt"):
-    model.save(model_path)
-    model_hash = get_model_hash(model)
-    with open(hash_path, "w") as f:
-        f.write(model_hash)
-
-def load_model_if_valid(model_path="traffic_sign_model.h5", hash_path="model_hash.txt"):
-    if not os.path.exists(model_path) or not os.path.exists(hash_path):
-        return None
-    model = load_model(model_path)
-    with open(hash_path, "r") as f:
-        saved_hash = f.read().strip()
-    if get_model_hash(model) == saved_hash:
-        print("Loaded saved model.")
-        return model
-    else:
-        print("Model architecture changed! Retraining...")
-        return None
-
 
 def preprocess_image(image_path):
     img = cv.imread(image_path)
@@ -72,21 +47,32 @@ def predict(image_path, confidence_threshold=0.7):
 
 
 def load_class_names(csv_path):
-    df = pd.read_csv(csv_path)
-    return dict(zip(df["id"], df["description"]))
+    try:
+        df = pd.read_csv(csv_path)
+        print("CSV columns found:", df.columns.tolist())
+        
+        unique_classes = df['ClassId'].unique()
+        
+        class_names = {}
+        for class_id in unique_classes:
+            class_names[str(class_id)] = f"Traffic Sign Class {class_id}"
+            
+        return class_names
+        
+    except Exception as e:
+        print(f"Error processing CSV: {e}")
+        return {}
 
 data_augmentation = tf.keras.Sequential([
     tf.keras.layers.RandomFlip("horizontal"),
     tf.keras.layers.RandomZoom(0.1),
+    tf.keras.layers.RandomRotation(0.2),
 ])
 
 ds_path = os.path.join("dataset", "Train")
 
 
 print("Path to dataset:", ds_path)
-
-
-
 
 train_val_ds = tf.keras.preprocessing.image_dataset_from_directory(
     ds_path,
@@ -108,19 +94,23 @@ val_test_ds = tf.keras.preprocessing.image_dataset_from_directory(
     seed=SEED
 )
 
-class_names = load_class_names(os.path.join("dataset", "sign_dic.csv"))
+class_names = load_class_names(os.path.join("dataset", "Train.csv"))
 print(class_names)
 
-num_classes = len(train_val_ds.class_names)
+original_class_names = train_val_ds.class_names
+num_classes = len(original_class_names)
 print(num_classes)
 
+# Now apply cache and prefetch
 train_val_ds = train_val_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
 val_ds = val_test_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
 
-ordered_descriptions = [
-    class_names.get(cls, "Unknown") 
-    for cls in class_names
-]
+class_indices = {i: name for i, name in enumerate(original_class_names)}
+ordered_descriptions = []
+for i in range(num_classes):
+    class_name = class_indices[i]
+    description = class_names.get(class_name, f"Class {class_name}")
+    ordered_descriptions.append(description)
 
 class_counts = np.bincount([y.numpy() for x, y in train_val_ds.unbatch()])
 class_weights = {i: 1/(count/len(class_counts)) for i, count in enumerate(class_counts)}
@@ -137,35 +127,44 @@ print(f"Test dataset size: {len(test_ds)} batches")
 
 normalization_layer = tf.keras.layers.Rescaling(1./255)
 
-model = load_model_if_valid()
-if not model:
-    model = tf.keras.Sequential([
-        tf.keras.layers.Input(shape=(224, 224, 3)),
+model = tf.keras.Sequential([
+    tf.keras.layers.Input(shape=(224, 224, 3)),
 
-        data_augmentation,
+    data_augmentation,
 
-        normalization_layer,        
+    normalization_layer,        
 
-        tf.keras.layers.Conv2D(32, (3,3), activation='relu'),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.MaxPooling2D(2,2),
+    tf.keras.layers.Conv2D(32, (3,3), activation='relu'),
+    tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.MaxPooling2D(2,2),
 
-        tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.MaxPooling2D(2,2),
+    tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
+    tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.MaxPooling2D(2,2),
 
-        tf.keras.layers.Conv2D(128, (3,3), activation='relu'),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.MaxPooling2D(2,2),
+    tf.keras.layers.Conv2D(128, (3,3), activation='relu'),
+    tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.MaxPooling2D(2,2),
 
-        tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(256, activation='relu', dtype='float32'),
-        tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(256, activation='relu', dtype='float32'),
+    tf.keras.layers.BatchNormalization(),
 
-        tf.keras.layers.Dense(num_classes, activation='softmax', dtype='float32')
-    ])
+    tf.keras.layers.Dense(num_classes, activation='softmax', dtype='float32')
+])
 
-    print(model.summary())
+print(model.summary())
+
+if not os.path.exists("sign.h5"):
+
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(
+        "best_sign_model.h5",
+        monitor="val_accuracy",
+        mode="max",
+        save_best_only=True,
+        verbose=1
+    )
+
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
@@ -178,10 +177,12 @@ if not model:
         validation_data=val_ds,
         epochs=EPOCHS,
         verbose=1,
-        class_weight=class_weights
+        class_weight=class_weights,
+        callbacks=[checkpoint]
     )
 
-    save_model_with_hash(model)
+    model.save("sign.h5")
+
     
     plt.figure(figsize=(12, 4))
     plt.subplot(1, 2, 1)
@@ -200,7 +201,9 @@ if not model:
     plt.legend()
     plt.show()
 
-
+else:
+    model = tf.keras.models.load_model("sign.h5")
+    print("Model loaded successfully.")
 
 plt.figure(figsize=(10, 10))
 for images, labels in val_ds.take(1):  
@@ -213,10 +216,3 @@ for images, labels in val_ds.take(1):
         plt.axis("off")
 plt.tight_layout()
 plt.show()
-
-
-#TEST IMAGE PREDICTION
-
-image_path = os.path.join("images", "test_image_30kmh.jpg")
-result = predict(image_path)
-print(f"Predicted class: {result}")

@@ -323,11 +323,6 @@ print(f"Test dataset size: {len(test_ds)} batches")
 
 
 model = create_unet_model()
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), 
-    loss='binary_crossentropy', 
-    metrics=[iou_metric]
-)
 
 if os.path.exists(MODEL_PATH):
     print(f"Loading existing model from {MODEL_PATH}")
@@ -337,6 +332,13 @@ if os.path.exists(MODEL_PATH):
     )
 else:
 
+    model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), 
+    loss='binary_crossentropy', 
+    metrics=[iou_metric]
+    )
+
+    
     early_stopping = EarlyStopping(
         monitor='val_iou_metric',
         patience=10,
