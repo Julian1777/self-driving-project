@@ -1,0 +1,14 @@
+# Core dependencies
+tensorflow==2.15.0
+matplotlib==3.7.1
+ipython==8.10.0
+numpy==1.26.4
+pandas>=1.5.3
+scikit-learn>=1.2.2
+
+# Image processing
+Pillow>=9.5.0  # For PIL/ImageTk
+opencv-python>=4.7.0  # For cv2
+
+# Progress bars and utilities
+tqdm>=4.65.0
