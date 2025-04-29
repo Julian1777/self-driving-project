@@ -49,14 +49,16 @@ def predict(image_path, confidence_threshold=0.7):
 def load_class_names(csv_path):
     try:
         df = pd.read_csv(csv_path)
+        print(f"Loading class names from {csv_path}")
         print("CSV columns found:", df.columns.tolist())
         
-        unique_classes = df['ClassId'].unique()
-        
         class_names = {}
-        for class_id in unique_classes:
-            class_names[str(class_id)] = f"Traffic Sign Class {class_id}"
+        for _, row in df.iterrows():
+            class_id = row['ClassId']
+            name = row['Name']
+            class_names[str(class_id)] = name
             
+        print(f"Loaded {len(class_names)} class names")
         return class_names
         
     except Exception as e:
@@ -65,9 +67,12 @@ def load_class_names(csv_path):
 
 data_augmentation = tf.keras.Sequential([
     tf.keras.layers.RandomFlip("horizontal"),
-    tf.keras.layers.RandomZoom(0.1),
-    tf.keras.layers.RandomRotation(0.2),
+    tf.keras.layers.RandomZoom(0.15),
+    tf.keras.layers.RandomRotation(0.25),
+    tf.keras.layers.RandomTranslation(0.1, 0.1),
+    tf.keras.layers.RandomContrast(0.2),
 ])
+
 
 ds_path = os.path.join("dataset", "Train")
 
@@ -94,7 +99,7 @@ val_test_ds = tf.keras.preprocessing.image_dataset_from_directory(
     seed=SEED
 )
 
-class_names = load_class_names(os.path.join("dataset", "Train.csv"))
+class_names = load_class_names(os.path.join("labels.csv"))
 print(class_names)
 
 original_class_names = train_val_ds.class_names
@@ -149,6 +154,8 @@ model = tf.keras.Sequential([
     tf.keras.layers.Flatten(),
     tf.keras.layers.Dense(256, activation='relu', dtype='float32'),
     tf.keras.layers.BatchNormalization(),
+
+    tf.keras.layers.Dropout(0.5),
 
     tf.keras.layers.Dense(num_classes, activation='softmax', dtype='float32')
 ])

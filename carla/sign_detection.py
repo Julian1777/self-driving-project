@@ -1,8 +1,9 @@
 import cv2 as cv
 import numpy as np
+import os
 
 IMG_SIZE = (224, 224)
-SIGN_MODEL_PATH = 'sign_model.h5'
+SIGN_MODEL_PATH = os.path.join("model", "sign_model.h5")
 
 
 def img_preprocessing(frame):
