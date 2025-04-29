@@ -163,9 +163,6 @@ def process_dataset(dataset):
 
 
 def visualize_predictions(model, dataset, num_images=4):
-    """
-    Visualizes predictions against true masks.
-    """
     for i, (images, masks) in enumerate(dataset.take(num_images)):
         pred_masks = model.predict(images)
 
@@ -278,7 +275,7 @@ print(model.summary())
 if not os.path.exists("traffic_light.h5"):
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        "best_model.h5",
+        "best_light_model.h5",
         monitor="accuracy",
         mode="max",
         save_best_only=True,
@@ -299,7 +296,7 @@ if not os.path.exists("traffic_light.h5"):
         callbacks=[checkpoint]
     )
 
-    model.save("lane_detection_model.h5")
+    model.save("traffic_light.h5")
     visualize_predictions(model, val_ds)
 
     plt.figure(figsize=(12, 4))

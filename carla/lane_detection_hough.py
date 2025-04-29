@@ -39,9 +39,9 @@ def filter_lanes(lines, image_width):
         slope = (y2 - y1) / (x2 - x1)
         mid_x = (x1 + x2) / 2
 
-        if slope < 0 and mid_x > image_width * 0.5 and mid_x < image_width * 0.5:
+        if slope < 0 and mid_x < image_width * 0.5:
             left_lines.append(line)
-        elif slope > 0 and mid_x > image_width * 0.7:
+        elif slope > 0 and mid_x > image_width * 0.5:
             right_lines.append(line) 
 
     return left_lines, right_lines
@@ -131,51 +131,39 @@ def display_lines(image,lines):
     return line_image
 
 def lane_detection(frame):
-    cap = frame
-    while(cap.isOpened()):
-        ret ,frame=cap.read()
 
-        height, width = frame.shape[:2]
+    height, width = frame.shape[:2]
 
-        canny_image=canny(frame)
-        
-        cropped_image, roi_polygon=roi(canny_image)
-        
-        lines = cv.HoughLinesP(
-            cropped_image,
-            rho=2,
-            theta=np.pi/180,
-            threshold=100,
-            minLineLength=40,
-            maxLineGap=5
-        )
+    canny_image=canny(frame)
+    
+    cropped_image, roi_polygon=roi(canny_image)
+    
+    lines = cv.HoughLinesP(
+        cropped_image,
+        rho=2,
+        theta=np.pi/180,
+        threshold=100,
+        minLineLength=40,
+        maxLineGap=5
+    )
 
-        left_lines, right_lines = filter_lanes(lines, width)
-        
-        left_right_lanes = fit_lane(frame, lines)
-        center_lane = None
+    left_lines, right_lines = filter_lanes(lines, width)
+    left_right_lanes = fit_lane(frame, lines)
 
-        line_image = np.zeros_like(frame)
 
-        lane_path = create_lane_path(frame, left_right_lanes)
+    line_image = np.zeros_like(frame)
+    lane_path = create_lane_path(frame, left_right_lanes)
 
-        if left_right_lanes is not None and len(left_right_lanes) > 0:
-            x1, y1, x2, y2 = left_right_lanes[0]
-            cv.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 8)  # Green
-        
-        if left_right_lanes is not None and len(left_right_lanes) > 1:
-            x1, y1, x2, y2 = left_right_lanes[1]
-            cv.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 8)  # Red
-        
-        result = frame.copy()
-        path_overlay = cv.addWeighted(result, 1, lane_path, 0.3, 0)  # 30% opacity for the path
-        final_image = cv.addWeighted(path_overlay, 1, line_image, 1, 0)  # Add lines at full opacity
-        
-        cv.imshow('result', final_image)
-        roi_resized = cv.resize(cropped_image, (400, 400))
-        cv.imshow("ROI-Image", roi_resized)
-
-        if cv.waitKey(1) & 0xFF==27:
-            break
-    cap.release()
-    cv.destroyAllWindows()
+    if left_right_lanes is not None and len(left_right_lanes) > 0:
+        x1, y1, x2, y2 = left_right_lanes[0]
+        cv.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 8)  # Green
+    
+    if left_right_lanes is not None and len(left_right_lanes) > 1:
+        x1, y1, x2, y2 = left_right_lanes[1]
+        cv.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 8)  # Red
+    
+    result = frame.copy()
+    path_overlay = cv.addWeighted(result, 1, lane_path, 0.3, 0)  # 30% opacity for the path
+    final_image = cv.addWeighted(path_overlay, 1, line_image, 1, 0)  # Add lines at full opacity
+    
+    return final_image

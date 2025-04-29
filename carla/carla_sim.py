@@ -4,6 +4,8 @@ import numpy as np
 import random
 from PIL import Image, ImageTk
 import cv2 as cv
+import os
+
 
 window_width, window_height = 800, 600
 
@@ -32,7 +34,7 @@ camera = world.spawn_actor(camera_bp, camera_transform, attach_to=vehicle)
 
 root = tk.Tk()
 root.title("Carla Self-Driving Car Simulation")
-root.protocol("WM_DELETE_WINDOW", lambda: exit.handler())
+root.protocol("WM_DELETE_WINDOW", exit.handler)
 
 # Create additional windows
 lane_hough_window = tk.Toplevel(root)
@@ -82,63 +84,45 @@ def numpy_to_tkinter(array):
 def show_image(image):
     global main_photo, lane_photo, sign_photo, light_photo
     
-    # Convert raw CARLA image to a (H,W,3) NumPy array in RGB order
     array = np.frombuffer(image.raw_data, dtype=np.uint8)
     array = array.reshape((image.height, image.width, 4))
-    rgb_image = array[:, :, :3][:, :, ::-1]  # BGRA to RGB
+    rgb_image = array[:, :, :3][:, :, ::-1]
     
-    # Update main window with original image
     main_photo = numpy_to_tkinter(rgb_image)
     main_canvas.create_image(0, 0, image=main_photo, anchor="nw")
     
-    # Process detections
     lane_results_hough = detect_lanes_hough(rgb_image)
     lane_results_ml = detect_lanes_ml(rgb_image)
     sign_results = detect_signs(rgb_image)
     light_results = detect_traffic_lights(rgb_image)
     
-    # Create copies for each window to draw on
     lane_image_hough = rgb_image.copy()
     lane_image_ml = rgb_image.copy()
     sign_image = rgb_image.copy()
     light_image = rgb_image.copy()
     
-    # Draw lane detection results (example - modify based on your actual results)
     if lane_results_hough:
-        # Example: Draw lines on the image
         for line in lane_results_hough:
             if isinstance(line, tuple) and len(line) == 2:
-                # Assuming line is ((x1,y1), (x2,y2))
                 cv.line(lane_image_hough, line[0], line[1], (255, 0, 0), 2)
-            # Handle other result formats as needed
 
     if lane_results_ml:
-        # Example: Draw lines on the image
         for line in lane_results_ml:
             if isinstance(line, tuple) and len(line) == 2:
-                # Assuming line is ((x1,y1), (x2,y2))
                 cv.line(lane_image_ml, line[0], line[1], (255, 0, 0), 2)
-            # Handle other result formats as needed
     
-    # Draw sign detection results (example)
     if sign_results:
-        # Example: Draw boxes around signs
         for sign in sign_results:
             if isinstance(sign, dict) and 'bbox' in sign:
-                # Assuming bbox is (x, y, w, h)
                 x, y, w, h = sign['bbox']
                 cv.rectangle(sign_image, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                # Add text if label exists
                 if 'label' in sign:
                     cv.putText(sign_image, sign['label'], (x, y-10), 
                                 cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     
-    # Draw traffic light detection results (example)
     if light_results:
-        # Similar to sign detection
         pass
     
-    # Update all windows with their respective images
     lane_hough_photo = numpy_to_tkinter(lane_image_hough)
     lane_hough_canvas.create_image(0, 0, image=lane_hough_photo, anchor="nw")
 
@@ -151,7 +135,6 @@ def show_image(image):
     light_photo = numpy_to_tkinter(light_image)
     light_canvas.create_image(0, 0, image=light_photo, anchor="nw")
     
-    # Schedule the next update
     root.update()
 
 
@@ -167,30 +150,30 @@ def exit_handler():
 def detect_lanes_hough(frames):
     from lane_detection_hough import lane_detection
 
-    results = lane_detection(frames)
+    lane_hough_results = lane_detection(frames)
 
-    return results
+    return lane_hough_results
 
 def detect_lanes_ml(frames):
-    from lane_detection_hough import lane_detection
+    from lane_detection_model import predict_lane
 
-    results = lane_detection(frames)
+    lane_ml_results = predict_lane(frames)
 
-    return results
+    return lane_ml_results
 
 def detect_traffic_lights(frames):
-    from traffic_light import traffic_light_detection
+    from traffic_light import predict_traffic_light
 
-    results = traffic_light_detection(frames)
+    light_results = predict_traffic_light(frames)
 
-    return results
+    return light_results
 
 def detect_signs(frames):
     from sign_detection import predict_sign
 
-    results = predict_sign(frames)
+    sign_results = predict_sign(frames)
 
-    return results
+    return sign_results
 
 
 camera.listen(lambda image: show_image(image))
