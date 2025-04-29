@@ -8,7 +8,7 @@ import csv
 BATCH_SIZE = 32
 IMG_SIZE = (224,224)
 SEED = 123
-EPOCHS = 10
+EPOCHS = 20
 
 ORIGINAL_DS_DIR = "lisa_dataset"
 DS_DIR = "dataset"
@@ -162,32 +162,42 @@ def process_dataset(dataset):
                 out_file.writelines(merged_annotation_lines)
 
 
-def visualize_predictions(model, dataset, num_images=4):
-    for i, (images, masks) in enumerate(dataset.take(num_images)):
-        pred_masks = model.predict(images)
-
-        pred_masks = (pred_masks > 0.5).astype("float32")
-
-        plt.figure(figsize=(12, 4))
-        for j in range(num_images):
-            # Image
-            plt.subplot(1, 3, 1)
-            plt.imshow(images[j])
-            plt.title("Image")
-            plt.axis('off')
-
-            # Ground truth mask
-            plt.subplot(1, 3, 2)
-            plt.imshow(masks[j])
-            plt.title("True Mask")
-            plt.axis('off')
-
-            # Predicted mask
-            plt.subplot(1, 3, 3)
-            plt.imshow(pred_masks[j])
-            plt.title("Predicted Mask")
-            plt.axis('off')
-
+def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True):
+    class_names = ['go', 'goLeft', 'stop', 'stopLeft', 'warning']
+    
+    for batch_images, batch_labels in dataset.take(num_batches):
+        predictions = model.predict(batch_images, verbose=0)
+        pred_classes = tf.argmax(predictions, axis=1)
+        
+        num_images = min(len(batch_images), 12)
+        columns = 3
+        rows = (num_images + columns - 1) // columns
+        
+        plt.figure(figsize=(12, 4 * rows))
+        
+        for i in range(num_images):
+            plt.subplot(rows, columns, i+1)
+            plt.imshow(batch_images[i].numpy().astype("uint8"))
+            
+            pred_idx = pred_classes[i]
+            confidence = predictions[i][pred_idx]
+            pred_class = class_names[pred_idx]
+            
+            if show_ground_truth:
+                true_class = class_names[batch_labels[i]]
+                title = f"Prediction: {pred_class}\n"
+                title += f"Confidence: {confidence:.2f}\n"
+                title += f"Actual: {true_class}"
+                color = "green" if pred_class == true_class else "red"
+            else:
+                title = f"Prediction: {pred_class}\n"
+                title += f"Confidence: {confidence:.2f}"
+                color = "black"
+                
+            plt.title(title, color=color, fontsize=10)
+            plt.axis("off")
+        
+        plt.tight_layout()
         plt.show()
 
 #Only for testing images/predictions
@@ -197,6 +207,13 @@ def process_image(image_path):
     image = image / 255.0  # Normalize to [0, 1]
     return image
 
+data_augmentation = tf.keras.Sequential([
+    tf.keras.layers.RandomFlip("horizontal"),
+    tf.keras.layers.RandomZoom(0.15),
+    tf.keras.layers.RandomRotation(0.25),
+    tf.keras.layers.RandomTranslation(0.1, 0.1),
+    tf.keras.layers.RandomContrast(0.2),
+])
 
 if not os.path.exists(os.path.join(DS_DIR, "daySequence1")):
     print("Dataset hasn't been processed yet. Processing now...")
@@ -250,25 +267,30 @@ print(f"Train dataset size: {len(train_ds)} batches")
 print(f"Validation dataset size: {len(val_ds)} batches")
 print(f"Test dataset size: {len(test_ds)} batches")
 
-model = tf.keras.Sequental([
+model = tf.keras.Sequential([
     tf.keras.layers.Input(shape=(224, 224, 3)),
 
-    #Data augmentation later on
+    data_augmentation,
 
     tf.keras.layers.Conv2D(32, (3,3), activation='relu'),
+    tf.keras.layers.BatchNormalization(),
     tf.keras.layers.MaxPooling2D(2,2),
 
     tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
+    tf.keras.layers.BatchNormalization(),
     tf.keras.layers.MaxPooling2D(2,2),
 
     tf.keras.layers.Conv2D(128, (3,3), activation='relu'),
+    tf.keras.layers.BatchNormalization(),
     tf.keras.layers.MaxPooling2D(2,2),
 
-    tf.keras.layers.Flatten(),
+    tf.keras.layers.GlobalAveragePooling2D(),
     tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dropout(0.5),
 
     tf.keras.layers.Dense(5, activation='softmax', dtype='float32')
 ])
+
 
 print(model.summary())
 
@@ -289,7 +311,7 @@ if not os.path.exists("traffic_light.h5"):
     )
 
     history = model.fit(
-        full_dataset,
+        train_ds,
         validation_data=val_ds,
         epochs=EPOCHS,
         verbose=1,
