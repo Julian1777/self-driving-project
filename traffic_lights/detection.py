@@ -7,6 +7,7 @@ from PIL import Image
 from tqdm import tqdm
 import tensorflow as tf
 from tensorflow.keras import layers, models
+from matplotlib import pyplot as plt
 
 # Config
 SOURCE_DIR = "dataset"
@@ -229,6 +230,51 @@ def yolo_model(input_shape=(224,224,3), num_classes=1):
 
     return models.Model(inputs, outputs)
 
+def load_dataset(image_dir, label_dir, image_size=(224, 224)):
+    def load_example(img_path):
+        img_path_str = img_path.numpy().decode()
+        base_name = os.path.splitext(os.path.basename(img_path_str))[0]
+        label_path = os.path.join(label_dir, f"{base_name}.txt")
+
+        # Load image
+        img = tf.io.read_file(img_path_str)
+        img = tf.image.decode_jpeg(img, channels=3)
+        img = tf.image.resize(img, image_size)
+        img = img / 255.0
+
+        # Load label
+        if not os.path.exists(label_path):
+            bbox = [0, 0, 0, 0, 0]
+        else:
+            with open(label_path, 'r') as f:
+                parts = f.readline().strip().split()
+                if len(parts) == 5:
+                    _, x, y, w, h = map(float, parts)
+                    bbox = [x, y, w, h, 1.0]
+                else:
+                    bbox = [0, 0, 0, 0, 0]
+
+        return img, tf.convert_to_tensor(bbox, dtype=tf.float32)
+
+    def wrapper(img_path):
+        img, label = tf.py_function(load_example, [img_path], [tf.float32, tf.float32])
+        img.set_shape((image_size[0], image_size[1], 3))
+        label.set_shape((5,))
+        return img, label
+
+    img_paths = sorted(glob.glob(os.path.join(image_dir, "*.jpg")))
+    dataset = tf.data.Dataset.from_tensor_slices(img_paths)
+    dataset = dataset.map(wrapper)
+    dataset = dataset.shuffle(500).batch(32).prefetch(tf.data.AUTOTUNE)
+    return dataset
+
+if not os.path.exists(TARGET_DIR):
+    main()
+    print("Dataset already exists. Skipping preparation.")
+
+
+train_dataset = load_dataset(f"{TARGET_DIR}/images/train", f"{TARGET_DIR}/labels/train")
+val_dataset = load_dataset(f"{TARGET_DIR}/images/val", f"{TARGET_DIR}/labels/val")
 
 model = yolo_model()
 if not os.path.exists('traffic_light_detection.h5'):
@@ -237,9 +283,21 @@ if not os.path.exists('traffic_light_detection.h5'):
         optimizer='adam',
         loss='mean_squared_error',
     )
+
+    history = model.fit(
+        train_dataset,
+        validation_data=val_dataset,
+        epochs=10,
+        batch_size=32,
+    )
     model.save('traffic_light_detection.h5')
+
+    plt.plot(history.history['loss'], label='train loss')
+    plt.plot(history.history['val_loss'], label='val loss')
+    plt.legend()
+    plt.show()
 else:
     model = tf.keras.models.load_model('traffic_light_detection.h5')
+    print("Model already exists. Skipping training.")
 
 
-main()
