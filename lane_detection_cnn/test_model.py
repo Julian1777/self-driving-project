@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 IMG_SIZE = (224, 224)
 LANE_MODEL_PATH = 'lane_detection_model.h5'
-TEST_IMAGE_PATH = 'lane.jpeg'
+TEST_IMAGE_PATH = 'lane2.jpg'
 
 def test_model():
     image = cv.imread(TEST_IMAGE_PATH)
