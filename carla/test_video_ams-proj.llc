@@ -1,0 +1,11 @@
+{
+  version: 1,
+  mediaFileName: 'test_video_ams.mp4',
+  cutSegments: [
+    {
+      start: 60.26930610705596,
+      end: 732.2720692007299,
+      name: '',
+    },
+  ],
+}

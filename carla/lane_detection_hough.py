@@ -27,7 +27,7 @@ def roi(image):
 
 def filter_lanes(lines, image_width):
     if lines is None:
-        return None, None, None
+        return None, None
     left_lines = []
     right_lines = []
 
@@ -147,23 +147,16 @@ def lane_detection(frame):
         maxLineGap=5
     )
 
-    left_lines, right_lines = filter_lanes(lines, width)
     left_right_lanes = fit_lane(frame, lines)
 
 
-    line_image = np.zeros_like(frame)
-    lane_path = create_lane_path(frame, left_right_lanes)
-
+    result_lines = []
     if left_right_lanes is not None and len(left_right_lanes) > 0:
         x1, y1, x2, y2 = left_right_lanes[0]
-        cv.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 8)  # Green
+        result_lines.append(((x1, y1), (x2, y2)))
     
     if left_right_lanes is not None and len(left_right_lanes) > 1:
         x1, y1, x2, y2 = left_right_lanes[1]
-        cv.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 8)  # Red
+        result_lines.append(((x1, y1), (x2, y2)))
     
-    result = frame.copy()
-    path_overlay = cv.addWeighted(result, 1, lane_path, 0.3, 0)  # 30% opacity for the path
-    final_image = cv.addWeighted(path_overlay, 1, line_image, 1, 0)  # Add lines at full opacity
-    
-    return final_image
+    return result_lines

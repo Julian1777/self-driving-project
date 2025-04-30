@@ -42,7 +42,6 @@ def process_subfolder(subfolder_path):
     print(f"Found {len(image_files)} images in {subfolder_path}")
     
     try:
-        # Parse the CSV file
         try:
             df = pd.read_csv(annotation_file, sep=';')
         except:
@@ -52,7 +51,6 @@ def process_subfolder(subfolder_path):
                 print(f"Could not parse annotation file: {annotation_file}")
                 return []
         
-        # Handle column mappings
         column_mappings = {
             'filename': ['Filename', 'filename', 'file', 'File', 'Filename:', 'Image'],
             'Upper left corner X': ['Upper left corner X', 'Roi.X1', 'X1', 'x1', 'xmin'],
@@ -76,24 +74,19 @@ def process_subfolder(subfolder_path):
         
         df = df.rename(columns=column_map)
         
-        # Create image data from annotations
         image_data = []
         
         for _, row in df.iterrows():
             try:
-                # Get filename and strip any path components
                 full_filename = row['filename']
-                # Extract just the base filename without any directories
                 base_filename = os.path.basename(full_filename)
                 
-                # Look for matching image in the subfolder
                 matching_file = None
                 for img_file in image_files:
                     if os.path.basename(img_file) == base_filename:
                         matching_file = img_file
                         break
                 
-                # Try with different extensions if not found
                 if not matching_file:
                     name_without_ext = os.path.splitext(base_filename)[0]
                     for img_file in image_files:
@@ -101,7 +94,6 @@ def process_subfolder(subfolder_path):
                             matching_file = img_file
                             break
                 
-                # Still not found - try if any file contains this name
                 if not matching_file:
                     name_without_ext = os.path.splitext(base_filename)[0]
                     for img_file in image_files:
@@ -113,7 +105,6 @@ def process_subfolder(subfolder_path):
                     print(f"Could not find matching image for {base_filename}")
                     continue
                 
-                # Process the coordinates
                 with Image.open(matching_file) as img:
                     w, h = img.size
                 
@@ -128,7 +119,6 @@ def process_subfolder(subfolder_path):
                 width = (x2 - x1) / w
                 height = (y2 - y1) / h
                 
-                # Constrain to valid range
                 x_center = max(0, min(1, x_center))
                 y_center = max(0, min(1, y_center))
                 width = max(0, min(1, width))
@@ -249,7 +239,7 @@ def load_dataset(image_dir, label_dir, image_size=(224, 224)):
             with open(label_path, 'r') as f:
                 parts = f.readline().strip().split()
                 if len(parts) == 5:
-                    _, x, y, w, h = map(float, parts)
+                    x, y, w, h = map(float, parts[1:])
                     bbox = [x, y, w, h, 1.0]
                 else:
                     bbox = [0, 0, 0, 0, 0]
@@ -263,15 +253,21 @@ def load_dataset(image_dir, label_dir, image_size=(224, 224)):
         return img, label
 
     img_paths = sorted(glob.glob(os.path.join(image_dir, "*.jpg")))
+    print(f"Found {len(img_paths)} images in {image_dir}")
     dataset = tf.data.Dataset.from_tensor_slices(img_paths)
     dataset = dataset.map(wrapper)
     dataset = dataset.shuffle(500).batch(32).prefetch(tf.data.AUTOTUNE)
     return dataset
 
-if not os.path.exists(TARGET_DIR):
+if not os.path.exists(os.path.join(TARGET_DIR, "dataset.yaml")):
     main()
+else:
     print("Dataset already exists. Skipping preparation.")
 
+def yolo_loss(y_true, y_pred):
+    coord_loss = tf.reduce_mean(tf.square(y_true[:, :4] - y_pred[:, :4]))
+    conf_loss = tf.reduce_mean(tf.square(y_true[:, 4] - y_pred[:, 4]))
+    return coord_loss + conf_loss
 
 train_dataset = load_dataset(f"{TARGET_DIR}/images/train", f"{TARGET_DIR}/labels/train")
 val_dataset = load_dataset(f"{TARGET_DIR}/images/val", f"{TARGET_DIR}/labels/val")
@@ -279,16 +275,25 @@ val_dataset = load_dataset(f"{TARGET_DIR}/images/val", f"{TARGET_DIR}/labels/val
 model = yolo_model()
 if not os.path.exists('traffic_light_detection.h5'):
 
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(
+        "best_light_detection_model.h5",
+        monitor="val_loss",
+        save_best_only=True,
+        verbose=1
+    )
+
     model.compile(
         optimizer='adam',
-        loss='mean_squared_error',
+        loss=yolo_loss,
     )
 
     history = model.fit(
         train_dataset,
         validation_data=val_dataset,
         epochs=10,
-        batch_size=32,
+        batch_size=None,
+        verbose=1,
+        callbacks=[checkpoint]
     )
     model.save('traffic_light_detection.h5')
 

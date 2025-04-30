@@ -94,12 +94,14 @@ def show_image(image):
     lane_results_hough = detect_lanes_hough(rgb_image)
     lane_results_ml = detect_lanes_ml(rgb_image)
     sign_results = detect_signs(rgb_image)
-    light_results = detect_traffic_lights(rgb_image)
+    light_results_detect = detect_traffic_lights(rgb_image)
+    light_results_class = classify_traffic_lights(rgb_image)
     
     lane_image_hough = rgb_image.copy()
     lane_image_ml = rgb_image.copy()
     sign_image = rgb_image.copy()
-    light_image = rgb_image.copy()
+    light_detect_image = rgb_image.copy()
+    light_class_image = rgb_image.copy()
     
     if lane_results_hough:
         for line in lane_results_hough:
@@ -120,7 +122,10 @@ def show_image(image):
                     cv.putText(sign_image, sign['label'], (x, y-10), 
                                 cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     
-    if light_results:
+    if light_results_detect:
+        pass
+
+    if light_results_class:
         pass
     
     lane_hough_photo = numpy_to_tkinter(lane_image_hough)
@@ -132,8 +137,11 @@ def show_image(image):
     sign_photo = numpy_to_tkinter(sign_image)
     sign_canvas.create_image(0, 0, image=sign_photo, anchor="nw")
     
-    light_photo = numpy_to_tkinter(light_image)
-    light_canvas.create_image(0, 0, image=light_photo, anchor="nw")
+    light_detect_photo = numpy_to_tkinter(light_detect_image)
+    light_canvas.create_image(0, 0, image=light_detect_photo, anchor="nw")
+
+    light_class_photo = numpy_to_tkinter(light_class_image)
+    light_canvas.create_image(0, 0, image=light_class_photo, anchor="nw")
     
     root.update()
 
@@ -162,11 +170,18 @@ def detect_lanes_ml(frames):
     return lane_ml_results
 
 def detect_traffic_lights(frames):
-    from traffic_light import predict_traffic_light
+    from traffic_light_detect import detect_traffic_light
 
-    light_results = predict_traffic_light(frames)
+    light_detect_results = detect_traffic_light(frames)
 
-    return light_results
+    return light_detect_results
+
+def classify_traffic_lights(frames):
+    from traffic_light_class import predict_traffic_light
+
+    light_class_results = predict_traffic_light(frames)
+
+    return light_class_results
 
 def detect_signs(frames):
     from sign_detection import predict_sign
