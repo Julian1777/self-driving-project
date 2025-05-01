@@ -8,6 +8,8 @@ from tqdm import tqdm
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from matplotlib import pyplot as plt
+from tensorflow.keras.callbacks import EarlyStopping
+
 
 # Config
 SOURCE_DIR = "dataset"
@@ -284,7 +286,22 @@ train_dataset = load_dataset(f"{TARGET_DIR}/images/train", f"{TARGET_DIR}/labels
 val_dataset = load_dataset(f"{TARGET_DIR}/images/val", f"{TARGET_DIR}/labels/val")
 
 model = yolo_model()
-if not os.path.exists('traffic_light_detection.h5'):
+
+if os.path.exists("traffic_light_detection.h5"):
+    print("Model already exists. Loading model...")
+    model = tf.keras.models.load_model("traffic_light_classification.h5")
+    print("Model loaded successfully.")
+elif os.path.exists("best_light_detection_model.h5"):
+    print("Using Checkpoint model...")
+    model = tf.keras.models.load_model("best_light_detection_model.h5") 
+    print("Model loaded successfully.")
+else:
+
+    early_stopping = EarlyStopping(
+    'val_accuracy', 
+    patience=3, 
+    restore_best_weights=True
+    )
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
         "best_light_detection_model.h5",
@@ -304,7 +321,7 @@ if not os.path.exists('traffic_light_detection.h5'):
         epochs=10,
         batch_size=None,
         verbose=1,
-        callbacks=[checkpoint]
+        callbacks=[checkpoint, early_stopping]
     )
     model.save('traffic_light_detection.h5')
 
@@ -312,8 +329,5 @@ if not os.path.exists('traffic_light_detection.h5'):
     plt.plot(history.history['val_loss'], label='val loss')
     plt.legend()
     plt.show()
-else:
-    model = tf.keras.models.load_model('traffic_light_detection.h5')
-    print("Model already exists. Skipping training.")
 
 

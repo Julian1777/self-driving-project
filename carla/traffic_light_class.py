@@ -6,7 +6,7 @@ import cv2 as cv
 
 
 IMG_SIZE = (224, 224)
-LIGHT_MODEL_PATH = os.path.join("model", "traffic_light.h5")
+LIGHT_MODEL_PATH = os.path.join("model", "traffic_light_classification.h5")
 LIGHT_STATES = ['go', 'goLeft', 'stop', 'stopLeft', 'warning']
 
 def img_preprocessing(image_input):

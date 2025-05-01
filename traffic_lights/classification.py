@@ -5,16 +5,19 @@ import shutil
 from tqdm import tqdm
 import csv
 import random
+from sklearn.utils import class_weight
+import numpy as np
+from tensorflow.keras.callbacks import EarlyStopping
 
 BATCH_SIZE = 32
 IMG_SIZE = (224,224)
 SEED = 123
-EPOCHS = 20
+EPOCHS = 30
 
 ORIGINAL_DS_DIR = "lisa_dataset"
 DS_DIR = "dataset"
 CLASS_DS_DIR = "classified_dataset"
-STATES = ["go", "stop", "warning", "stopLeft", "goLeft"]
+STATES = ["go", "stop", "warning"]
 STATE_DIRS = {state: os.path.join(CLASS_DS_DIR, state) for state in STATES}
 ANNOTATIONS_DIR = "lisa_dataset/Annotations/Annotations"
 sequences = ["daySequence1", "daySequence2", "dayTrain", "nightSequence1", "nightSequence2", "nightTrain"]
@@ -360,7 +363,7 @@ def process_dataset(dataset):
 
 
 def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True):
-    class_names = ['go', 'goLeft', 'stop', 'stopLeft', 'warning']
+    class_names = ['go', 'stop', 'warning']
     
     for batch_images, batch_labels in dataset.take(num_batches):
         predictions = model.predict(batch_images, verbose=0)
@@ -412,14 +415,13 @@ data_augmentation = tf.keras.Sequential([
     tf.keras.layers.RandomContrast(0.2),
 ])
 
+
+
 if not os.path.exists(os.path.join(DS_DIR, "daySequence1")):
     print("Dataset hasn't been processed yet. Processing now...")
     process_dataset(ORIGINAL_DS_DIR)
 else:
     print("Dataset is already processed. Skipping dataset processing.")
-
-
-
 
 if not os.path.exists(os.path.join(CLASS_DS_DIR, "go")):
     print("Dataset hasn't been classified yet. Processing now...")
@@ -440,7 +442,8 @@ full_dataset = tf.keras.preprocessing.image_dataset_from_directory(
     shuffle=True,
     subset="training",
     validation_split=0.2,
-    seed=SEED
+    seed=SEED,
+    class_names=STATES
 )
 
 print(full_dataset.class_names)
@@ -468,6 +471,24 @@ print(f"Train dataset size: {len(train_ds)} batches")
 print(f"Validation dataset size: {len(val_ds)} batches")
 print(f"Test dataset size: {len(test_ds)} batches")
 
+all_train_labels = []
+for _, labels in train_ds.unbatch():
+    all_train_labels.append(int(labels.numpy()))
+
+weights = class_weight.compute_class_weight(
+    class_weight="balanced",
+    classes=np.arange(len(STATES)),
+    y=all_train_labels
+)
+class_weights = {i: w for i, w in enumerate(weights)}
+print("Class weights:", class_weights)
+
+early_stopping = EarlyStopping(
+    'val_accuracy', 
+    patience=3, 
+    restore_best_weights=True
+)
+
 model = tf.keras.Sequential([
     tf.keras.layers.Input(shape=(224, 224, 3)),
 
@@ -489,16 +510,27 @@ model = tf.keras.Sequential([
     tf.keras.layers.Dense(128, activation='relu'),
     tf.keras.layers.Dropout(0.5),
 
-    tf.keras.layers.Dense(5, activation='softmax', dtype='float32')
+    tf.keras.layers.Dense(3, activation='softmax', dtype='float32')
 ])
 
 
 print(model.summary())
 
-if not os.path.exists("traffic_light.h5"):
+if os.path.exists("traffic_light_classification.h5"):
+    print("Model already exists. Loading model...")
+    model = tf.keras.models.load_model("traffic_light_classification.h5")
+    print("Model loaded successfully.")
+    visualize_predictions(model, val_ds)
+elif os.path.exists("light_classification_checkpoint.h5"):
+    print("Using Checkpoint model...")
+    model = tf.keras.models.load_model("light_classification_checkpoint.h5") 
+    print("Model loaded successfully.")
+    visualize_predictions(model, val_ds)
+else:
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        "best_light_model.h5",
+        "light_classification_checkpoint.h5",
+        save_weights_only=True,
         monitor="accuracy",
         mode="max",
         save_best_only=True,
@@ -516,10 +548,11 @@ if not os.path.exists("traffic_light.h5"):
         validation_data=val_ds,
         epochs=EPOCHS,
         verbose=1,
-        callbacks=[checkpoint]
+        class_weight=class_weights,
+        callbacks=[checkpoint, early_stopping]
     )
 
-    model.save("traffic_light.h5")
+    model.save("traffic_light_classification.h5")
     visualize_predictions(model, val_ds)
 
     plt.figure(figsize=(12, 4))
@@ -538,10 +571,4 @@ if not os.path.exists("traffic_light.h5"):
     plt.ylabel('Accuracy')
     plt.legend()
     plt.show()
-
-
-else:
-    model = tf.keras.models.load_model("traffic_light.h5")
-    print("Model loaded successfully.")
-    visualize_predictions(model, val_ds)
 

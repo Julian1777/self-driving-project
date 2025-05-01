@@ -130,7 +130,7 @@ def display_lines(image,lines):
 
     return line_image
 
-cap = cv.VideoCapture('test_video_2.mp4')
+cap = cv.VideoCapture('test_video_ams_cut.mp4')
 while(cap.isOpened()):
     ret ,frame=cap.read()
 
