@@ -8,3 +8,4 @@ traffic_lights/lisa_dataset
 traffic_lights/classified_dataset
 traffic_sign/dataset
 traffic_lights/yolo_dataset
+traffic_sign/croppped_dataset

@@ -4,6 +4,7 @@ import os
 import shutil
 from tqdm import tqdm
 import csv
+import random
 
 BATCH_SIZE = 32
 IMG_SIZE = (224,224)
@@ -17,9 +18,205 @@ STATES = ["go", "stop", "warning", "stopLeft", "goLeft"]
 STATE_DIRS = {state: os.path.join(CLASS_DS_DIR, state) for state in STATES}
 ANNOTATIONS_DIR = "lisa_dataset/Annotations/Annotations"
 sequences = ["daySequence1", "daySequence2", "dayTrain", "nightSequence1", "nightSequence2", "nightTrain"]
+CROP_DS = "cropped_dataset"
 
 os.makedirs(DS_DIR, exist_ok=True)
 os.makedirs(CLASS_DS_DIR, exist_ok=True)
+os.makedirs(CROP_DS, exist_ok=True)
+
+
+def crop_dataset():
+    os.makedirs(CROP_DS, exist_ok=True)
+    
+    all_annotations = {}
+    print("Loading annotations from original dataset...")
+    
+    for seq in sequences:
+        seq_dir = os.path.join(ANNOTATIONS_DIR, seq)
+        seq_ann_file = os.path.join(seq_dir, "frameAnnotationsBOX.csv")
+
+        if os.path.exists(seq_ann_file):
+            ann_file = seq_ann_file
+            print(f"Reading annotations from {ann_file}")
+            
+            try:
+                with open(ann_file, 'r') as f:
+                    print(f"First lines of {ann_file}")
+                    for i, line in enumerate(f):
+                        if i < 3:
+                            print(f"Line {i}: {line.strip()}")
+                        else:
+                            break
+                    f.seek(0)
+                    next(f, None)
+                    
+                    for line in f:
+                        parts = line.strip().split(';')
+                        if len(parts) < 6:
+                            continue
+                        
+                        full_path = parts[0]
+                        filename = os.path.basename(full_path)
+                        state = parts[1]
+                        
+                        x1 = int(float(parts[2]))
+                        y1 = int(float(parts[3]))
+                        x2 = int(float(parts[4]))
+                        y2 = int(float(parts[5]))
+                        
+                        all_annotations[filename] = {
+                            'state': state,
+                            'x1': x1,
+                            'y1': y1,
+                            'x2': x2,
+                            'y2': y2
+                        }
+
+                        if random.random() < 0.01:
+                            print(f"DEBUG: Annotation for {filename} from {seq}: state={state}, box=({x1},{y1},{x2},{y2})")
+            except Exception as e:
+                print(f"Error reading {ann_file}: {e}")
+                
+        else:
+            clip_dirs = []
+            
+            if os.path.exists(seq_dir):
+                clip_dirs = [d for d in os.listdir(seq_dir) 
+                            if d.startswith("Clip") and os.path.isdir(os.path.join(seq_dir, d))]
+            
+            if clip_dirs:
+                print(f"Found {len(clip_dirs)} Clip subfolders for {seq}")
+                
+                for clip in clip_dirs:
+                    clip_dir = os.path.join(seq_dir, clip)
+                    clip_ann_file = os.path.join(clip_dir, "frameAnnotationsBOX.csv")
+                    
+                    if os.path.exists(clip_ann_file):
+                        print(f"Reading annotations from {clip_ann_file}")
+                        
+                        try:
+                            with open(clip_ann_file, 'r') as f:
+                                next(f, None)  # Skip header
+                                
+                                for line in f:
+                                    parts = line.strip().split(';')
+                                    if len(parts) < 6:
+                                        continue
+                                    
+                                    full_path = parts[0]
+                                    filename = os.path.basename(full_path)
+                                    state = parts[1]
+                                    
+                                    x1 = int(float(parts[2]))
+                                    y1 = int(float(parts[3]))
+                                    x2 = int(float(parts[4]))
+                                    y2 = int(float(parts[5]))
+                                    
+                                    all_annotations[filename] = {
+                                        'state': state,
+                                        'x1': x1,
+                                        'y1': y1,
+                                        'x2': x2,
+                                        'y2': y2
+                                    }
+                        except Exception as e:
+                            print(f"Error reading {clip_ann_file}: {e}")
+    
+    print(f"Loaded {len(all_annotations)} total annotations")
+    
+    for state in STATES:
+
+        invalid_box_count = 0
+        load_error_count = 0
+        empty_crop_count = 0
+        success_count = 0
+
+        source_dir = os.path.join(CLASS_DS_DIR, state)
+        target_dir = os.path.join(CROP_DS, state)
+        
+        if not os.path.exists(source_dir):
+            print(f"Directory not found: {source_dir}")
+            continue
+            
+        os.makedirs(target_dir, exist_ok=True)
+        
+        images = [f for f in os.listdir(source_dir) 
+                 if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        print(f"Found {len(images)} images in {state} directory")
+        
+        if images:
+            sample_imgs = random.sample(images, min(3, len(images)))
+            print(f"Sample images: {sample_imgs}")
+            
+            for img in sample_imgs:
+                if img in all_annotations:
+                    print(f"✓ {img} has annotations: {all_annotations[img]}")
+                else:
+                    print(f"✗ {img} does not have annotations")
+        
+        matched_count = sum(1 for img in images if img in all_annotations)
+        print(f"Images with matching annotations: {matched_count}/{len(images)} ({matched_count/len(images)*100:.1f}%)")
+
+        cropped_count = 0
+        print_image = 0
+        print_image_limit = 4
+        print(f"\nDiagnostic information for {state}:")
+        sample_boxes = []
+        for img_filename in tqdm(images, desc=f"Cropping {state} images"):
+            print_image += 1
+            if img_filename in all_annotations and print_image < print_image_limit:
+                annotation = all_annotations[img_filename]
+                print(f"Cropping {img_filename} with box ({annotation['x1']}, {annotation['y1']}) to ({annotation['x2']}, {annotation['y2']})")
+            if img_filename not in all_annotations:
+                continue
+                
+            annotation = all_annotations[img_filename]
+            
+            x1 = annotation['x1']
+            y1 = annotation['y1']
+            x2 = annotation['x2']
+            y2 = annotation['y2']
+            
+            if len(sample_boxes) < 5:
+                sample_boxes.append((img_filename, x1, y1, x2, y2, x2-x1, y2-y1))
+            
+            if x1 >= x2 or y1 >= y2:
+                invalid_box_count += 1
+                continue
+                
+            try:
+                img_path = os.path.join(source_dir, img_filename)
+                crop_path = os.path.join(target_dir, img_filename)
+                
+                image = tf.keras.preprocessing.image.load_img(img_path)
+                image_array = tf.keras.preprocessing.image.img_to_array(image)
+                print(f"Image size: {image_array.shape}, Crop box: ({x1},{y1}) to ({x2},{y2})")
+                
+                crop = image_array[y1:y2, x1:x2]
+                if crop.shape[0] > 0 and crop.shape[1] > 0:
+                    resized = tf.image.resize(crop, IMG_SIZE)
+                    tf.keras.preprocessing.image.save_img(crop_path, resized.numpy())
+                    cropped_count += 1
+                    success_count += 1
+                else:
+                    empty_crop_count += 1
+            except Exception as e:
+                print(f"Error processing {img_path}: {e}")
+        
+        print(f"Successfully cropped {cropped_count} images for state: {state}")
+
+        print(f"\nCropping results for {state}:")
+        print(f"- Total images with annotations: {len(images)}")
+        print(f"- Invalid bounding boxes: {invalid_box_count}")
+        print(f"- Image loading errors: {load_error_count}")
+        print(f"- Empty crops: {empty_crop_count}")
+        print(f"- Successfully cropped: {success_count}")
+
+        print("\nSample bounding boxes (filename, x1, y1, x2, y2, width, height):")
+        for box in sample_boxes:
+            print(f"- {box[0]}: ({box[1]}, {box[2]}) to ({box[3]}, {box[4]}) - Size: {box[5]}×{box[6]} pixels")
+
+        print(f"Cropping complete. Results saved to {CROP_DS}")
 
 
 def copy_images_based_on_annotations(seq_dir, annotation_file):
@@ -202,7 +399,7 @@ def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True)
 
 #Only for testing images/predictions
 def process_image(image_path):
-    image = tf.keras.preprocessing.image.load_img(image_path, target_size=IMG_SIZE)
+    image = tf.keras.preprocessing.image.load_img(image_path)
     image = tf.keras.preprocessing.image.img_to_array(image)
     image = image / 255.0  # Normalize to [0, 1]
     return image
@@ -230,10 +427,14 @@ if not os.path.exists(os.path.join(CLASS_DS_DIR, "go")):
 else:
     print("Dataset is already classified. Skipping dataset processing.")
 
-
+if not os.path.exists(os.path.join(CROP_DS, "go")):
+    print("Dataset hasn't been cropped yet. Processing now...")
+    crop_dataset()
+else:
+    print("Dataset is already cropped. Skipping dataset processing.")
 
 full_dataset = tf.keras.preprocessing.image_dataset_from_directory(
-    CLASS_DS_DIR,
+    CROP_DS,
     batch_size=None,
     image_size=IMG_SIZE,
     shuffle=True,

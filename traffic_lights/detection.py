@@ -20,6 +20,15 @@ os.makedirs(f"{TARGET_DIR}/images/val", exist_ok=True)
 os.makedirs(f"{TARGET_DIR}/labels/train", exist_ok=True)
 os.makedirs(f"{TARGET_DIR}/labels/val", exist_ok=True)
 
+
+data_augmentation = tf.keras.Sequential([
+    tf.keras.layers.RandomFlip("horizontal"),
+    tf.keras.layers.RandomZoom(0.15),
+    tf.keras.layers.RandomRotation(0.25),
+    tf.keras.layers.RandomTranslation(0.1, 0.1),
+    tf.keras.layers.RandomContrast(0.2),
+])
+
 def process_subfolder(subfolder_path):
     annotation_files = glob.glob(os.path.join(subfolder_path, "*.csv"))
     
@@ -202,6 +211,8 @@ names: ['traffic_light']
 
 def yolo_model(input_shape=(224,224,3), num_classes=1):
     inputs = tf.keras.Input(shape=input_shape)
+
+    data_augmentation,
 
     x = layers.Conv2D(16, 3, padding='same', activation='relu')(inputs)
     x = layers.MaxPooling2D()(x)
