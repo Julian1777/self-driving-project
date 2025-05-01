@@ -6,17 +6,25 @@ import glob
 import os
 
 IMG_SIZE = (224, 224)
-CLASSIFICATION_MODEL_PATH = 'traffic_light.h5'
+CLASSIFICATION_MODEL_PATH = 'traffic_light_classification.h5'
 DETECTION_MODEL_PATH = 'traffic_light_detection.h5'
 CONFIDENCE_THRESHOLD = 0.5
 
 STATES = {
     0: {'name': 'go', 'color': (0, 255, 0)},        # Green
-    1: {'name': 'goLeft', 'color': (0, 255, 128)},  # Green-Yellow
-    2: {'name': 'stop', 'color': (0, 0, 255)},      # Red
-    3: {'name': 'stopLeft', 'color': (128, 0, 255)},# Purple-Red
-    4: {'name': 'warning', 'color': (0, 255, 255)}  # Yellow
+    1: {'name': 'stop', 'color': (0, 0, 255)},      # Red
+    2: {'name': 'warning', 'color': (0, 255, 255)}  # Yellow
 }
+
+detection_model = None
+classification_model = None
+
+def load_models():
+    global detection_model, classification_model
+    if detection_model is None:
+        detection_model = load_model(DETECTION_MODEL_PATH, compile=False)
+    if classification_model is None:
+        classification_model = load_model(CLASSIFICATION_MODEL_PATH, compile=False)
 
 def img_preprocessing(image):
     img = image.copy()
@@ -25,8 +33,7 @@ def img_preprocessing(image):
     img = np.expand_dims(img, axis=0)
     return img
 
-def detect_traffic_lights(image, detection_model, confidence_threshold=0.5):
-    """Detect traffic lights in an image using the detection model"""
+def detect_traffic_lights(image, detection_model, confidence_threshold=CONFIDENCE_THRESHOLD):
     h, w = image.shape[:2]
     preprocessed = img_preprocessing(image)
     detections = detection_model.predict(preprocessed, verbose=0)[0]
@@ -70,9 +77,8 @@ def classify_traffic_light(image, bbox, classification_model):
     return class_id, confidence
 
 def process_image(image_path):
-    """Process a single image for traffic light detection and classification"""
-    detection_model = load_model(DETECTION_MODEL_PATH, compile=False)
-    classification_model = load_model(CLASSIFICATION_MODEL_PATH, compile=False)
+    global detection_model, classification_model
+    load_models()
     
     image = cv.imread(image_path)
     if image is None:
@@ -119,6 +125,10 @@ def process_image(image_path):
     return image_rgb, result_image
 
 def test_model(image_path=None):
+    load_models()
+    print("Model output shape:", classification_model.output_shape)
+    print("Expected classes:", classification_model.output_shape[1])
+
     if image_path is None or not os.path.exists(image_path):
         test_images = [
             'traffic_light1_stop.jpg',
@@ -131,20 +141,32 @@ def test_model(image_path=None):
     else:
         test_images = [image_path]
     
-    for img_path in test_images:
-        print(f"Processing {img_path}...")
-        results = process_image(img_path)
-        
-        if results is None:
+    for test_img_path in test_images:
+        image = cv.imread(test_img_path)
+        if image is None:
+            print(f"Could not load image: {test_img_path}")
             continue
             
-        original, detection = results
+        image_rgb = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+        
+        preprocessed = img_preprocessing(image)
+        
+        prediction = classification_model.predict(preprocessed, verbose=0)[0]
+        print("Raw prediction:", prediction)
+        print("Predicted class index:", np.argmax(prediction))
+        print("Confidence:", np.max(prediction))
+        
+        result_data = process_image(test_img_path)
+        if result_data is None:
+            continue
+            
+        original, detection = result_data
         
         plt.figure(figsize=(12, 6))
         
         plt.subplot(1, 2, 1)
         plt.title("Original Image")
-        plt.imshow(original)
+        plt.imshow(image_rgb)
         plt.axis('off')
         
         plt.subplot(1, 2, 2)

@@ -411,8 +411,7 @@ data_augmentation = tf.keras.Sequential([
     tf.keras.layers.RandomFlip("horizontal"),
     tf.keras.layers.RandomZoom(0.15),
     tf.keras.layers.RandomRotation(0.25),
-    tf.keras.layers.RandomTranslation(0.1, 0.1),
-    tf.keras.layers.RandomContrast(0.2),
+    tf.keras.layers.RandomTranslation(0.1, 0.1)
 ])
 
 
