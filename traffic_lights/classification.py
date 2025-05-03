@@ -4,366 +4,100 @@ import os
 import shutil
 from tqdm import tqdm
 import csv
-import random
 from sklearn.utils import class_weight
 import numpy as np
 from tensorflow.keras.callbacks import EarlyStopping
+import json
+import cv2 as cv
+from PIL import Image
 
-BATCH_SIZE = 32
-IMG_SIZE = (224,224)
+BATCH_SIZE = 64
+IMG_SIZE = (64,64)
 SEED = 123
-EPOCHS = 30
+EPOCHS = 20
+PADDING = 10
 
-ORIGINAL_DS_DIR = "lisa_dataset"
+ORIGINAL_DS_DIR = "dtld_dataset"
 DS_DIR = "dataset"
 CLASS_DS_DIR = "classified_dataset"
-STATES = ["go", "stop", "warning"]
+STATES = ["green", "red", "yellow", "off"]
 STATE_DIRS = {state: os.path.join(CLASS_DS_DIR, state) for state in STATES}
-ANNOTATIONS_DIR = "lisa_dataset/Annotations/Annotations"
-sequences = ["daySequence1", "daySequence2", "dayTrain", "nightSequence1", "nightSequence2", "nightTrain"]
-CROP_DS = "cropped_dataset"
-
-os.makedirs(DS_DIR, exist_ok=True)
-os.makedirs(CLASS_DS_DIR, exist_ok=True)
-os.makedirs(CROP_DS, exist_ok=True)
+ANNOATION = os.path.join(ORIGINAL_DS_DIR, "Berlin.json")
+CROP_DS = os.path.join(ORIGINAL_DS_DIR, "cropped_dataset")
 
 
 def crop_dataset():
-    os.makedirs(CROP_DS, exist_ok=True)
     
-    all_annotations = {}
+    os.makedirs(CROP_DS, exist_ok=True)
     print("Loading annotations from original dataset...")
     
-    for seq in sequences:
-        seq_dir = os.path.join(ANNOTATIONS_DIR, seq)
-        seq_ann_file = os.path.join(seq_dir, "frameAnnotationsBOX.csv")
+    with open(ANNOATION, "r") as f:
+        data = json.load(f)
 
-        if os.path.exists(seq_ann_file):
-            ann_file = seq_ann_file
-            print(f"Reading annotations from {ann_file}")
-            
-            try:
-                with open(ann_file, 'r') as f:
-                    print(f"First lines of {ann_file}")
-                    for i, line in enumerate(f):
-                        if i < 3:
-                            print(f"Line {i}: {line.strip()}")
-                        else:
-                            break
-                    f.seek(0)
-                    next(f, None)
-                    
-                    for line in f:
-                        parts = line.strip().split(';')
-                        if len(parts) < 6:
-                            continue
-                        
-                        full_path = parts[0]
-                        filename = os.path.basename(full_path)
-                        state = parts[1]
-                        
-                        x1 = int(float(parts[2]))
-                        y1 = int(float(parts[3]))
-                        x2 = int(float(parts[4]))
-                        y2 = int(float(parts[5]))
-                        
-                        all_annotations[filename] = {
-                            'state': state,
-                            'x1': x1,
-                            'y1': y1,
-                            'x2': x2,
-                            'y2': y2
-                        }
-
-                        if random.random() < 0.01:
-                            print(f"DEBUG: Annotation for {filename} from {seq}: state={state}, box=({x1},{y1},{x2},{y2})")
-            except Exception as e:
-                print(f"Error reading {ann_file}: {e}")
-                
-        else:
-            clip_dirs = []
-            
-            if os.path.exists(seq_dir):
-                clip_dirs = [d for d in os.listdir(seq_dir) 
-                            if d.startswith("Clip") and os.path.isdir(os.path.join(seq_dir, d))]
-            
-            if clip_dirs:
-                print(f"Found {len(clip_dirs)} Clip subfolders for {seq}")
-                
-                for clip in clip_dirs:
-                    clip_dir = os.path.join(seq_dir, clip)
-                    clip_ann_file = os.path.join(clip_dir, "frameAnnotationsBOX.csv")
-                    
-                    if os.path.exists(clip_ann_file):
-                        print(f"Reading annotations from {clip_ann_file}")
-                        
-                        try:
-                            with open(clip_ann_file, 'r') as f:
-                                next(f, None)  # Skip header
-                                
-                                for line in f:
-                                    parts = line.strip().split(';')
-                                    if len(parts) < 6:
-                                        continue
-                                    
-                                    full_path = parts[0]
-                                    filename = os.path.basename(full_path)
-                                    state = parts[1]
-                                    
-                                    x1 = int(float(parts[2]))
-                                    y1 = int(float(parts[3]))
-                                    x2 = int(float(parts[4]))
-                                    y2 = int(float(parts[5]))
-                                    
-                                    all_annotations[filename] = {
-                                        'state': state,
-                                        'x1': x1,
-                                        'y1': y1,
-                                        'x2': x2,
-                                        'y2': y2
-                                    }
-                        except Exception as e:
-                            print(f"Error reading {clip_ann_file}: {e}")
-    
-    print(f"Loaded {len(all_annotations)} total annotations")
-    
-    for state in STATES:
-
-        invalid_box_count = 0
-        load_error_count = 0
-        empty_crop_count = 0
-        success_count = 0
-
-        source_dir = os.path.join(CLASS_DS_DIR, state)
-        target_dir = os.path.join(CROP_DS, state)
-        
-        if not os.path.exists(source_dir):
-            print(f"Directory not found: {source_dir}")
+    for entry in data["images"]:
+        rel_path = entry["image_path"]
+        full_path = os.path.join(ORIGINAL_DS_DIR, rel_path)
+        try:
+            pil_image = Image.open(full_path)
+        except Exception as e:
+            print(f"Failed to open {full_path}: {e}")
             continue
-            
-        os.makedirs(target_dir, exist_ok=True)
         
-        images = [f for f in os.listdir(source_dir) 
-                 if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-        print(f"Found {len(images)} images in {state} directory")
-        
-        if images:
-            sample_imgs = random.sample(images, min(3, len(images)))
-            print(f"Sample images: {sample_imgs}")
-            
-            for img in sample_imgs:
-                if img in all_annotations:
-                    print(f"✓ {img} has annotations: {all_annotations[img]}")
-                else:
-                    print(f"✗ {img} does not have annotations")
-        
-        matched_count = sum(1 for img in images if img in all_annotations)
-        print(f"Images with matching annotations: {matched_count}/{len(images)} ({matched_count/len(images)*100:.1f}%)")
+        np_img = np.array(pil_image)
+        if np_img.ndim == 2:
+            np_img = np.stack([np_img]*3, axis=-1)
+        h_img, w_img = np_img.shape[:2]
+        print(f"Image size: {h_img}x{w_img}")
+        print(f"Image shape: {np_img.shape}, dtype: {np_img.dtype}, min: {np.min(np_img)}, max: {np.max(np_img)}")
 
-        cropped_count = 0
-        print_image = 0
-        print_image_limit = 4
-        print(f"\nDiagnostic information for {state}:")
-        sample_boxes = []
-        for img_filename in tqdm(images, desc=f"Cropping {state} images"):
-            print_image += 1
-            if img_filename in all_annotations and print_image < print_image_limit:
-                annotation = all_annotations[img_filename]
-                print(f"Cropping {img_filename} with box ({annotation['x1']}, {annotation['y1']}) to ({annotation['x2']}, {annotation['y2']})")
-            if img_filename not in all_annotations:
+
+        for label in entry["labels"]:
+            attr = label["attributes"]
+            
+            if attr["relevance"] != "relevant" or attr["direction"] != "front":
                 continue
-                
-            annotation = all_annotations[img_filename]
+
+            x, y, w, h = label["x"], label["y"], label["w"], label["h"]
+            state = attr["state"]
             
-            x1 = annotation['x1']
-            y1 = annotation['y1']
-            x2 = annotation['x2']
-            y2 = annotation['y2']
-            
-            if len(sample_boxes) < 5:
-                sample_boxes.append((img_filename, x1, y1, x2, y2, x2-x1, y2-y1))
-            
-            if x1 >= x2 or y1 >= y2:
-                invalid_box_count += 1
+            x0 = max(x - PADDING, 0)
+            y0 = max(y - PADDING, 0)
+            x1 = min(x + w + PADDING, w_img)
+            y1 = min(y + h + PADDING, h_img)
+
+            crop = np_img[y0:y1, x0:x1]
+            if crop.size == 0:
+                print(f"Empty crop at {rel_path} box {x,y,w,h}")
                 continue
-                
-            try:
-                img_path = os.path.join(source_dir, img_filename)
-                crop_path = os.path.join(target_dir, img_filename)
-                
-                image = tf.keras.preprocessing.image.load_img(img_path)
-                image_array = tf.keras.preprocessing.image.img_to_array(image)
-                print(f"Image size: {image_array.shape}, Crop box: ({x1},{y1}) to ({x2},{y2})")
-                
-                crop = image_array[y1:y2, x1:x2]
-                if crop.shape[0] > 0 and crop.shape[1] > 0:
-                    resized = tf.image.resize(crop, IMG_SIZE)
-                    tf.keras.preprocessing.image.save_img(crop_path, resized.numpy())
-                    cropped_count += 1
-                    success_count += 1
-                else:
-                    empty_crop_count += 1
-            except Exception as e:
-                print(f"Error processing {img_path}: {e}")
-        
-        print(f"Successfully cropped {cropped_count} images for state: {state}")
 
-        print(f"\nCropping results for {state}:")
-        print(f"- Total images with annotations: {len(images)}")
-        print(f"- Invalid bounding boxes: {invalid_box_count}")
-        print(f"- Image loading errors: {load_error_count}")
-        print(f"- Empty crops: {empty_crop_count}")
-        print(f"- Successfully cropped: {success_count}")
-
-        print("\nSample bounding boxes (filename, x1, y1, x2, y2, width, height):")
-        for box in sample_boxes:
-            print(f"- {box[0]}: ({box[1]}, {box[2]}) to ({box[3]}, {box[4]}) - Size: {box[5]}×{box[6]} pixels")
-
-        print(f"Cropping complete. Results saved to {CROP_DS}")
-
-
-def copy_images_based_on_annotations(seq_dir, annotation_file):
-    with open(annotation_file, 'r') as f:
-        reader = csv.reader(f, delimiter=';')
-        next(reader)
-        for row in reader:
-            if len(row) >= 2:
-                full_image_path = row[0]  # Filename
-                image_name = os.path.basename(full_image_path)
-
-                light_state = row[1]  # Annotation tag (go, stop, warning)
-
-                if light_state in STATE_DIRS:
-                    img_src_path = os.path.join(seq_dir, image_name)
-
-                    if os.path.exists(img_src_path):
-                        img_dest_path = os.path.join(STATE_DIRS[light_state], image_name)
-
-                        if not os.path.exists(img_dest_path):
-                            print(f"Copying {img_src_path} to {img_dest_path}")
-                            shutil.copy2(img_src_path, img_dest_path)
-                        else:
-                            print(f"File already exists: {img_dest_path} — Skipping.")
-                    else:
-                        print(f"File not found: {img_src_path}")
-                else:
-                    print(f"Skipping invalid light state: {light_state} in row: {row}")
+            crop_f = crop.astype(np.float32)
+            minv, maxv = crop_f.min(), crop_f.max()
+            if maxv > minv:
+                crop_norm = ((crop_f - minv) / (maxv - minv) * 255.0).astype(np.uint8)
             else:
-                print(f"Skipping malformed row: {row}")
+                crop_norm = np.zeros_like(crop, dtype=np.uint8)
 
-def classify_dataset(dataset):
-    for state_dir in STATE_DIRS.values():
-        os.makedirs(state_dir, exist_ok=True)
+            crop_resized = cv.resize(
+                crop_norm,
+                IMG_SIZE,
+                interpolation=cv.INTER_CUBIC
+            )
 
-    for seq in sequences:
-        seq_dir = os.path.join(DS_DIR, seq)
-        annotation_dir = os.path.join(ANNOTATIONS_DIR, seq)
+            crop_bgr = cv.cvtColor(crop_resized, cv.COLOR_RGB2BGR)
 
-        if not os.path.exists(seq_dir):
-            print(f"Skipping {seq}, folder not found.")
-            continue
-        
-        for ann_file in ["frameAnnotationsBOX.csv", "frameAnnotationsBULB.csv"]:
-            ann_file_path = os.path.join(annotation_dir, ann_file)
-            if os.path.exists(ann_file_path):
-                print(f"Processing {seq} with annotation file {ann_file}")
-                copy_images_based_on_annotations(seq_dir, ann_file_path)
-                break
+            state_dir = os.path.join(CROP_DS, state)
+            os.makedirs(state_dir, exist_ok=True)
 
-def process_dataset(dataset):
-    if not os.path.exists(DS_DIR):
-        os.makedirs(DS_DIR)
+            base = os.path.splitext(os.path.basename(rel_path))[0]
+            out_name = f"{base}_{x}_{y}.jpg"
+            out_path = os.path.join(state_dir, out_name)
 
-    print(f"Sequences: {sequences}")
-    print(f"Original Dataset Directory: {dataset}")
-    print(f"Dataset Directory: {DS_DIR}")
-
-    for seq in tqdm(sequences, desc="Processing Sequences"):
-        possible_seq_dirs = [
-            os.path.join(dataset, seq, seq),
-            os.path.join(dataset, seq)
-        ]
-
-        seq_dir = None
-        for d in possible_seq_dirs:
-            if os.path.exists(d):
-                seq_dir = d
-                break
-
-        annotation_dir = os.path.join(dataset, "Annotations", "Annotations", seq)
-
-        if not seq_dir or not os.path.exists(annotation_dir):
-            print(f"Skipping {seq} — couldn't find data or annotations.")
-            continue
-
-        frames_path = os.path.join(seq_dir, "frames")
-        has_frames_dir = os.path.exists(frames_path)
-        has_subfolders = any(
-            os.path.isdir(os.path.join(seq_dir, f)) and f != "frames" for f in os.listdir(seq_dir)
-        )
-
-        sequence_folder = os.path.join(DS_DIR, seq)
-        os.makedirs(sequence_folder, exist_ok=True)
-
-        merged_annotation_lines = []
-        header_written = False
-
-        if has_subfolders:
-            subfolders = [f for f in os.listdir(seq_dir) if os.path.isdir(os.path.join(seq_dir, f))]
-            for subfolder in tqdm(subfolders, desc=(f"{seq}: Processing Subfolders"), leave=False):
-                subfolder_path = os.path.join(seq_dir, subfolder)
-                frames_dir = os.path.join(subfolder_path, "frames")
-                if not os.path.exists(frames_dir):
-                    frames_dir = subfolder_path
-
-                image_files = [f for f in os.listdir(frames_dir) if f.endswith(".jpg")]
-                for img_file in tqdm(image_files, desc=f"{seq}/{subfolder}: Saving Images", leave=False):
-                    img_path = os.path.join(frames_dir, img_file)
-                    image = process_image(img_path)
-                    save_path = os.path.join(sequence_folder, img_file)
-                    tf.keras.preprocessing.image.save_img(save_path, image * 255.0)
-
-                for ann_file in ["frameAnnotationsBOX.csv", "frameAnnotationsBULB.csv"]:
-                    ann_path = os.path.join(annotation_dir, subfolder, ann_file)
-                    if os.path.exists(ann_path):
-                        with open(ann_path, "r") as f:
-                            lines = f.readlines()
-                            if not header_written:
-                                merged_annotation_lines.append(lines[0])  # header
-                                header_written = True
-                            merged_annotation_lines.extend(lines[1:])  # data rows
-                        break
-        elif has_frames_dir:
-            frames_dir = frames_path
-            if not os.path.exists(frames_dir):
-                print(f"[{seq}] Expected frames/ folder, but not found. Trying to use base seq_dir.")
-                frames_dir = seq_dir
-
-            image_files = [f for f in os.listdir(frames_dir) if f.endswith(".jpg")]
-            for img_file in tqdm(image_files, desc=f"{seq}: Saving Images", leave=False):
-                img_path = os.path.join(frames_dir, img_file)
-                image = process_image(img_path)
-                save_path = os.path.join(sequence_folder, img_file)
-                tf.keras.preprocessing.image.save_img(save_path, image * 255.0)
-
-            for ann_file in ["frameAnnotationsBOX.csv", "frameAnnotationsBULB.csv"]:
-                ann_path = os.path.join(annotation_dir, ann_file)
-                if os.path.exists(ann_path):
-                    with open(ann_path, "r") as f:
-                        lines = f.readlines()
-                        merged_annotation_lines.extend(lines)
-                    break
-        else:
-            print(f"[{seq}] No frames/ folder or subfolders found — skipping sequence.")
-
-        if merged_annotation_lines:
-            merged_path = os.path.join(sequence_folder, "frameAnnotations.csv")
-            with open(merged_path, "w") as out_file:
-                out_file.writelines(merged_annotation_lines)
+            cv.imwrite(out_path, crop_bgr)
+            print(f"Saved {state} crop: {out_path}")
 
 
 def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True):
-    class_names = ['go', 'stop', 'warning']
+    class_names = ['green', 'red', 'yellow', 'off']
     
     for batch_images, batch_labels in dataset.take(num_batches):
         predictions = model.predict(batch_images, verbose=0)
@@ -400,6 +134,44 @@ def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True)
         plt.tight_layout()
         plt.show()
 
+
+def create_hsv_features(image):
+    hsv = tf.image.rgb_to_hsv(image)
+    
+    h_channel = hsv[:, :, :, 0]  # Hue
+    s_channel = hsv[:, :, :, 1]  # Saturation  
+    v_channel = hsv[:, :, :, 2]  # Value (brightness)
+    
+    brightness = tf.reduce_mean(v_channel, axis=[1, 2])
+    
+    # Red: H in [0, 0.05] or [0.95, 1.0]
+    red_hue_mask1 = tf.logical_and(h_channel >= 0.0, h_channel <= 0.05)
+    red_hue_mask2 = tf.logical_and(h_channel >= 0.95, h_channel <= 1.0)
+    red_hue_mask = tf.logical_or(red_hue_mask1, red_hue_mask2)
+    red_mask = tf.logical_and(red_hue_mask, 
+                 tf.logical_and(s_channel > 0.4, v_channel > 0.2))
+    red_count = tf.reduce_sum(tf.cast(red_mask, tf.float32), axis=[1, 2])
+    
+    # Yellow: H in [0.10, 0.17]
+    yellow_hue_mask = tf.logical_and(h_channel >= 0.10, h_channel <= 0.17)
+    yellow_mask = tf.logical_and(yellow_hue_mask, 
+                   tf.logical_and(s_channel > 0.4, v_channel > 0.2))
+    yellow_count = tf.reduce_sum(tf.cast(yellow_mask, tf.float32), axis=[1, 2])
+    
+    # Green: H in [0.25, 0.45]
+    green_hue_mask = tf.logical_and(h_channel >= 0.25, h_channel <= 0.45)
+    green_mask = tf.logical_and(green_hue_mask, 
+                  tf.logical_and(s_channel > 0.4, v_channel > 0.2))
+    green_count = tf.reduce_sum(tf.cast(green_mask, tf.float32), axis=[1, 2])
+    
+    total_pixels = tf.cast(tf.shape(h_channel)[1] * tf.shape(h_channel)[2], tf.float32)
+    red_ratio = red_count / total_pixels
+    yellow_ratio = yellow_count / total_pixels
+    green_ratio = green_count / total_pixels
+    
+    hsv_features = tf.stack([brightness, red_ratio, yellow_ratio, green_ratio], axis=1)
+    return hsv_features
+
 #Only for testing images/predictions
 def process_image(image_path):
     image = tf.keras.preprocessing.image.load_img(image_path)
@@ -411,22 +183,27 @@ data_augmentation = tf.keras.Sequential([
     tf.keras.layers.RandomFlip("horizontal"),
     tf.keras.layers.RandomZoom(0.15),
     tf.keras.layers.RandomRotation(0.25),
-    tf.keras.layers.RandomTranslation(0.1, 0.1)
+    tf.keras.layers.RandomTranslation(0.1, 0.1),
+    #Color Jitter
+    tf.keras.layers.Lambda(lambda x: tf.image.random_brightness(x, max_delta=0.2)),
+    tf.keras.layers.Lambda(lambda x: tf.image.random_contrast(x, lower=0.8, upper=1.2)),
+    tf.keras.layers.Lambda(lambda x: tf.image.random_saturation(x, lower=0.8, upper=1.2)),
+    tf.keras.layers.Lambda(lambda x: tf.image.random_hue(x, max_delta=0.05))
 ])
 
 
 
-if not os.path.exists(os.path.join(DS_DIR, "daySequence1")):
-    print("Dataset hasn't been processed yet. Processing now...")
-    process_dataset(ORIGINAL_DS_DIR)
-else:
-    print("Dataset is already processed. Skipping dataset processing.")
+# if not os.path.exists(os.path.join(DS_DIR, "daySequence1")):
+#     print("Dataset hasn't been processed yet. Processing now...")
+#     process_dataset(ORIGINAL_DS_DIR)
+# else:
+#     print("Dataset is already processed. Skipping dataset processing.")
 
-if not os.path.exists(os.path.join(CLASS_DS_DIR, "go")):
-    print("Dataset hasn't been classified yet. Processing now...")
-    classify_dataset(DS_DIR)
-else:
-    print("Dataset is already classified. Skipping dataset processing.")
+# if not os.path.exists(os.path.join(CLASS_DS_DIR, "go")):
+#     print("Dataset hasn't been classified yet. Processing now...")
+#     classify_dataset(DS_DIR)
+# else:
+#     print("Dataset is already classified. Skipping dataset processing.")
 
 if not os.path.exists(os.path.join(CROP_DS, "go")):
     print("Dataset hasn't been cropped yet. Processing now...")
@@ -488,30 +265,44 @@ early_stopping = EarlyStopping(
     restore_best_weights=True
 )
 
-model = tf.keras.Sequential([
-    tf.keras.layers.Input(shape=(224, 224, 3)),
+def build_traffic_light_model():
+    inputs = tf.keras.layers.Input(shape=(64, 64, 3))
+    
+    augmented = data_augmentation(inputs)
+    
+    x = tf.keras.layers.Conv2D(32, (3,3), activation='relu')(augmented)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.MaxPooling2D(2,2)(x)
+    
+    x = tf.keras.layers.Conv2D(64, (3,3), activation='relu')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.MaxPooling2D(2,2)(x)
+    
+    x = tf.keras.layers.Conv2D(128, (3,3), activation='relu')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.MaxPooling2D(2,2)(x)
+    
+    x = tf.keras.layers.Conv2D(256, (3,3), activation='relu')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.MaxPooling2D(2,2)(x)
+    
+    x = tf.keras.layers.GlobalAveragePooling2D()(x)
+    cnn_features = tf.keras.layers.Dense(128, activation='relu')(x)
+    cnn_features = tf.keras.layers.Dropout(0.5)(cnn_features)
+    
+    hsv_features = tf.keras.layers.Lambda(create_hsv_features)(augmented)
+    hsv_branch = tf.keras.layers.Dense(16, activation='relu')(hsv_features)
+    
+    combined = tf.keras.layers.Concatenate()([cnn_features, hsv_branch])
+    
+    outputs = tf.keras.layers.Dense(3, activation='softmax', dtype='float32')(combined)
+    
+    model = tf.keras.Model(inputs=inputs, outputs=[outputs, hsv_features])
+    
+    return model
 
-    data_augmentation,
 
-    tf.keras.layers.Conv2D(32, (3,3), activation='relu'),
-    tf.keras.layers.BatchNormalization(),
-    tf.keras.layers.MaxPooling2D(2,2),
-
-    tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
-    tf.keras.layers.BatchNormalization(),
-    tf.keras.layers.MaxPooling2D(2,2),
-
-    tf.keras.layers.Conv2D(128, (3,3), activation='relu'),
-    tf.keras.layers.BatchNormalization(),
-    tf.keras.layers.MaxPooling2D(2,2),
-
-    tf.keras.layers.GlobalAveragePooling2D(),
-    tf.keras.layers.Dense(128, activation='relu'),
-    tf.keras.layers.Dropout(0.5),
-
-    tf.keras.layers.Dense(3, activation='softmax', dtype='float32')
-])
-
+model = build_traffic_light_model()
 
 print(model.summary())
 
@@ -526,6 +317,14 @@ elif os.path.exists("light_classification_checkpoint.h5"):
     print("Model loaded successfully.")
     visualize_predictions(model, val_ds)
 else:
+
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+    monitor='val_loss',
+    factor=0.5,
+    patience=2,
+    min_lr=1e-6,
+    verbose=1
+    )
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
         "light_classification_checkpoint.h5",
@@ -548,7 +347,7 @@ else:
         epochs=EPOCHS,
         verbose=1,
         class_weight=class_weights,
-        callbacks=[checkpoint, early_stopping]
+        callbacks=[checkpoint, early_stopping, reduce_lr]
     )
 
     model.save("traffic_light_classification.h5")
