@@ -1,292 +1,525 @@
-import tensorflow as tf
-import matplotlib.pyplot as plt
 import os
-import shutil
-from tqdm import tqdm
-import csv
-from sklearn.utils import class_weight
-import numpy as np
-from tensorflow.keras.callbacks import EarlyStopping
+import cv2
 import json
-import cv2 as cv
-from PIL import Image
+import numpy as np
+import tifffile
+from tqdm import tqdm
+from PIL import Image, ImageFile
+import imagecodecs
 from skimage import exposure
-from skimage import io
-import tifffile  # For advanced TIFF handling
 
+# Enable truncated image loading
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-BATCH_SIZE = 64
-IMG_SIZE = (64,64)
-SEED = 123
-EPOCHS = 20
-PADDING = 10
+# Configuration matching DTLD structure
+DTLD_DIR = "dtld_dataset"
+CROP_SIZE = (64, 64)
+STATES = ["red", "yellow", "green", "off"]
+VALID_DIRECTIONS = ["front"]
+VALID_RELEVANCE = ["relevant"]
 
-ORIGINAL_DS_DIR = "dtld_dataset"
-DS_DIR = "dataset"
-CLASS_DS_DIR = "classified_dataset"
-STATES = ["green", "red", "yellow", "off"]
-STATE_DIRS = {state: os.path.join(CLASS_DS_DIR, state) for state in STATES}
-ANNOATION = os.path.join(ORIGINAL_DS_DIR, "Berlin.json")
-CROP_DS = os.path.join(ORIGINAL_DS_DIR, "cropped_dataset")
+def load_dtld_image(path):
+    """Load DTLD TIFF with specific handling for sparse data"""
+    try:
+        # Method 1: Use PIL - works best for DTLD
+        try:
+            with Image.open(path) as pil_img:
+                pil_img = pil_img.convert('RGB')  # Force conversion to RGB
+                np_img = np.array(pil_img)
+                
+                # Check if the image is too sparse (mostly black)
+                non_zero = np.count_nonzero(np_img) / np_img.size
+                
+                # For extremely sparse images, apply special scaling
+                if non_zero < 0.1:  # Less than 10% non-zero values
+                    tqdm.write(f"Sparse image detected ({non_zero*100:.2f}% non-zero), enhancing...")
+                    # Apply channel-wise enhancement for sparse images
+                    for c in range(3):
+                        channel = np_img[:,:,c]
+                        if np.max(channel) > 0:
+                            # Only consider non-zero values for percentile calculation
+                            mask = channel > 0
+                            if np.any(mask):
+                                p99 = np.percentile(channel[mask], 99)
+                                if p99 > 0:
+                                    scale = 255.0 / p99
+                                    channel = np.clip(channel * scale, 0, 255).astype(np.uint8)
+                                    np_img[:,:,c] = channel
+                
+                return cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+        except Exception as e1:
+            tqdm.write(f"PIL failed for {path}: {e1}")
+        
+        # Method 2: Direct OpenCV as fallback
+        try:
+            cv_img = cv2.imread(path, cv2.IMREAD_ANYCOLOR)
+            if cv_img is not None and cv_img.size > 0:
+                tqdm.write(f"Loaded {path} with OpenCV: {cv_img.shape}")
+                return cv_img
+        except Exception as e3:
+            tqdm.write(f"OpenCV failed for {path}: {e3}")
+            
+        tqdm.write(f"All image loading methods failed for {path}")
+        return None
+    except Exception as e:
+        tqdm.write(f"Error in load_dtld_image for {path}: {str(e)}")
+        return None
 
+def dtld_enhance(img):
+    """Better enhancement for DTLD images with special handling for sparse data"""
+    # Calculate percentage of non-zero pixels
+    non_zero = np.count_nonzero(img) / img.size * 100
+    
+    # For sparse images (common in DTLD dataset)
+    if non_zero < 10.0:  # Less than 10% non-zero pixels
+        # Apply stronger contrast enhancement
+        for c in range(3):
+            channel = img[:,:,c]
+            if np.std(channel) > 0:  # Only process if channel has variation
+                # Use non-zero values to determine scaling
+                mask = channel > 0
+                if np.any(mask):
+                    p99 = np.percentile(channel[mask], 99)
+                    if p99 > 0:
+                        scale = 255.0 / p99
+                        channel = np.clip(channel * scale, 0, 255).astype(np.uint8)
+                        img[:,:,c] = channel
+    
+    # Then apply CLAHE with adaptive settings based on image properties
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab)
+    
+    # More aggressive settings for sparse images
+    clip_limit = 3.0 if non_zero < 5.0 else 1.5
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8,8))
+    l_enhanced = clahe.apply(l_channel)
+    
+    # Merge enhanced L channel with original color
+    lab_enhanced = cv2.merge((l_enhanced, a_channel, b_channel))
+    return cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
 
+def check_brightness(img_path):
+    """Quick diagnostic to check image brightness issues with progress display"""
+    output_dir = os.path.join(DTLD_DIR, "brightness_test")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print(f"Testing {img_path}...")
+    
+    try:
+        # Try PIL first (most compatible)
+        try:
+            print("Attempting to load with PIL...")
+            with Image.open(img_path) as pil_img:
+                pil_img = pil_img.convert('RGB')
+                np_img = np.array(pil_img)
+                print(f"PIL loaded image: {np_img.shape}, {np_img.dtype}")
+                
+                # Check if the image is too sparse (mostly black)
+                non_zero = np.count_nonzero(np_img) / np_img.size
+                print(f"Non-zero pixel percentage: {non_zero*100:.2f}%")
+                
+                if non_zero < 0.1:  # If less than 10% of pixels have values
+                    print("WARNING: Image is extremely sparse, applying special scaling...")
+                    # Boost contrast dramatically for sparse images
+                    for c in range(3):
+                        channel = np_img[:,:,c]
+                        if np.max(channel) > 0:
+                            p99 = np.percentile(channel[channel > 0], 99)
+                            channel = np.clip(channel * 255.0 / p99, 0, 255).astype(np.uint8)
+                            np_img[:,:,c] = channel
+                
+                # Save PIL version for comparison
+                pil_bgr = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(os.path.join(output_dir, "pil_version.jpg"), pil_bgr)
+                print(f"Saved PIL version to {output_dir}/pil_version.jpg")
+                
+                # Save enhanced versions
+                enhanced = pil_bgr.copy()
+                # Apply autocontrast to each channel separately
+                for c in range(3):
+                    channel = enhanced[:,:,c]
+                    if np.std(channel) > 0:
+                        p1, p99 = np.percentile(channel, (1, 99))
+                        if p99 > p1:
+                            channel = np.clip((channel - p1) * 255.0 / (p99 - p1), 0, 255).astype(np.uint8)
+                            enhanced[:,:,c] = channel
+                
+                cv2.imwrite(os.path.join(output_dir, "enhanced_pil.jpg"), enhanced)
+                
+                # Apply CLAHE for even more contrast enhancement
+                lab = cv2.cvtColor(enhanced, cv2.COLOR_BGR2LAB)
+                l, a, b = cv2.split(lab)
+                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                cl = clahe.apply(l)
+                clahe_img = cv2.merge((cl, a, b))
+                clahe_img = cv2.cvtColor(clahe_img, cv2.COLOR_LAB2BGR)
+                cv2.imwrite(os.path.join(output_dir, "clahe_pil.jpg"), clahe_img)
+                
+                return True
+                
+        except Exception as e:
+            print(f"PIL loading failed: {e}")
+            
+        # Try Direct OpenCV approach if PIL fails
+        try:
+            cv_img = cv2.imread(img_path)
+            if cv_img is not None and cv_img.size > 0:
+                print(f"OpenCV loaded image: {cv_img.shape}")
+                non_zero = np.count_nonzero(cv_img) / cv_img.size
+                print(f"Non-zero pixel percentage: {non_zero*100:.2f}%")
+                
+                # Save OpenCV version
+                cv2.imwrite(os.path.join(output_dir, "opencv_version.jpg"), cv_img)
+                return True
+        except Exception as e:
+            print(f"OpenCV loading failed: {e}")
+            
+        return False
+            
+    except Exception as e:
+        print(f"Diagnostic failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def process_dtld_crop(crop):
+    """Special handling for DTLD's small traffic lights"""
+    # Enhanced upscaling for small crops without using SR model
+    if max(crop.shape[:2]) < 32:
+        # Use Lanczos4 for high-quality upscaling
+        h, w = crop.shape[:2]
+        crop = cv2.resize(crop, (w*2, h*2), interpolation=cv2.INTER_LANCZOS4)
+    
+    # Maintain original aspect ratio
+    h, w = crop.shape[:2]
+    if h / w > 2.5:  # DTLD's vertical traffic lights
+        crop = cv2.resize(crop, (CROP_SIZE[0], int(CROP_SIZE[0]*h/w)))
+    elif w / h > 2:  # Horizontal configurations
+        crop = cv2.resize(crop, (int(CROP_SIZE[1]*w/h), CROP_SIZE[1]))
+    else:
+        crop = cv2.resize(crop, CROP_SIZE)
+    
+    return crop
+
+def parse_dtld_attributes(label):
+    """Parse DTLD v2.0 JSON attributes"""
+    attrs = label.get("attributes", {})
+    return {
+        "state": attrs.get("state", "unknown"),
+        "direction": attrs.get("direction", "unknown"),
+        "relevance": attrs.get("relevance", "unknown"),
+        "pictogram": attrs.get("pictogram", "unknown")
+    }
 
 def crop_dataset():
-    os.makedirs(CROP_DS, exist_ok=True)
-    print("Loading annotations from original dataset...")
+    # Initialize directory structure
+    output_dir = os.path.join(DTLD_DIR, "processed_crops")
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Create preview directories
-    debug_dir = os.path.join(CROP_DS, "debug")
-    preview_dir = os.path.join(CROP_DS, "previews")
-    temp_dir = os.path.join(CROP_DS, "temp_converted")
+    # Create debug directory
+    debug_dir = os.path.join(output_dir, "debug")
     os.makedirs(debug_dir, exist_ok=True)
-    os.makedirs(preview_dir, exist_ok=True)
-    os.makedirs(temp_dir, exist_ok=True)
     
-    # Track statistics
+    # Load DTLD annotations
+    print("Loading annotations...")
+    with open(os.path.join(DTLD_DIR, "Berlin.json")) as f:
+        dataset = json.load(f)
+    
     stats = {
-        'processed': 0,
-        'skipped_tiny': 0,
-        'skipped_dark': 0,
-        'skipped_unknown_state': 0,
-        'saved': {'green': 0, 'red': 0, 'yellow': 0, 'off': 0}
+        "total": 0,
+        "valid": 0,
+        "invalid_state": 0,
+        "small_crop": 0,
+        "processing_errors": 0,
+        "by_state": {state: 0 for state in STATES}
+    }
+
+    # Process each image with DTLD-specific parameters
+    for entry in tqdm(dataset["images"], desc="Processing images"):
+        try:
+            # Get the image path
+            rel_path = entry["image_path"]
+            if rel_path.startswith("./"):
+                rel_path = rel_path[2:]
+                
+            img_path = os.path.join(DTLD_DIR, rel_path)
+            
+            # Skip if file doesn't exist
+            if not os.path.exists(img_path):
+                tqdm.write(f"File not found: {img_path}")
+                stats["processing_errors"] += 1
+                continue
+                
+            # Skip if no labels
+            if not entry.get("labels"):
+                continue
+                
+            # Load the image - progress will show on tqdm
+            img = None
+            
+            # Try PIL first
+            try:
+                with Image.open(img_path) as pil_img:
+                    pil_img = pil_img.convert('RGB')
+                    np_img = np.array(pil_img)
+                    img = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+                    tqdm.write(f"Loaded {img_path} with PIL: {img.shape}")
+            except Exception as e1:
+                tqdm.write(f"PIL failed for {img_path}: {e1}")
+                
+                # Try tifffile page access
+                try:
+                    with tifffile.TiffFile(img_path) as tif:
+                        page = tif.pages[0]
+                        raw_img = page.asarray()
+                        
+                        # Handle 16-bit images with better scaling
+                        if raw_img.dtype == np.uint16:
+                            # Use percentile scaling for better visibility
+                            p1, p99 = np.percentile(raw_img, (1, 99))
+                            if p99 > p1:
+                                img = np.clip((raw_img - p1) * 255.0 / (p99 - p1), 0, 255).astype(np.uint8)
+                            else:
+                                img = np.zeros_like(raw_img, dtype=np.uint8)
+                        else:
+                            img = raw_img
+                            
+                        # Ensure 3 channels
+                        if img.ndim == 2:
+                            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                            
+                        tqdm.write(f"Loaded {img_path} with tifffile: {img.shape}")
+                except Exception as e2:
+                    tqdm.write(f"tifffile failed for {img_path}: {e2}")
+                    
+                    # Try OpenCV as last resort
+                    img = cv2.imread(img_path)
+                    if img is not None:
+                        tqdm.write(f"Loaded {img_path} with OpenCV: {img.shape}")
+            
+            # If we couldn't load the image, skip it
+            if img is None or img.size == 0:
+                tqdm.write(f"Failed to load image: {img_path}")
+                stats["processing_errors"] += 1
+                continue
+            
+            # Save a debug image with crops marked
+            debug_img = img.copy()
+            
+            # Apply DTLD-specific enhancement
+            enhanced = dtld_enhance(img)
+            
+            # Process each traffic light
+            valid_crops_in_image = 0
+            
+            for label in tqdm(entry.get("labels", []), desc="Processing crops", leave=False):
+                stats["total"] += 1
+                attrs = parse_dtld_attributes(label)
+                
+                # Filter based on DTLD attributes
+                if (attrs["state"] not in STATES or
+                    attrs["direction"] not in VALID_DIRECTIONS or
+                    attrs["relevance"] not in VALID_RELEVANCE):
+                    stats["invalid_state"] += 1
+                    continue
+                
+                # Extract traffic light coordinates
+                x, y, w, h = label["x"], label["y"], label["w"], label["h"]
+                
+                # Mark on debug image
+                cv2.rectangle(debug_img, (x, y), (x+w, y+h), (0, 0, 255), 2)
+                cv2.putText(debug_img, attrs["state"], (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 
+                            0.5, (0, 255, 255), 2)
+                
+                # Calculate dynamic padding for tiny lights
+                padding = int(max(w, h) * 2.0)  # Larger padding factor for better context
+                
+                # Extract crop with context
+                x0 = max(x - padding, 0)
+                y0 = max(y - padding, 0)
+                x1 = min(x + w + padding, img.shape[1])
+                y1 = min(y + h + padding, img.shape[0])
+                crop = enhanced[y0:y1, x0:x1].copy()
+                
+                # Skip tiny or empty crops
+                if crop.size == 0 or min(crop.shape[:2]) < 8:
+                    stats["small_crop"] += 1
+                    continue
+                
+                # Process crop with special handling
+                processed = process_dtld_crop(crop)
+                
+                # Save in folder structure
+                state_dir = os.path.join(output_dir, attrs["state"])
+                os.makedirs(state_dir, exist_ok=True)
+                filename = f"{os.path.basename(img_path)}_{x}_{y}.png"
+                cv2.imwrite(os.path.join(state_dir, filename), processed)
+                
+                # Update stats
+                stats["valid"] += 1
+                stats["by_state"][attrs["state"]] += 1
+                valid_crops_in_image += 1
+            
+            # Save debug image if we found any valid crops
+            if valid_crops_in_image > 0:
+                # Resize debug image if too large
+                if max(debug_img.shape[:2]) > 1200:
+                    scale = 1200 / max(debug_img.shape[:2])
+                    debug_img = cv2.resize(debug_img, None, fx=scale, fy=scale, 
+                                         interpolation=cv2.INTER_AREA)
+                
+                debug_filename = os.path.basename(img_path)
+                cv2.imwrite(os.path.join(debug_dir, debug_filename), debug_img)
+                
+        except Exception as e:
+            tqdm.write(f"Error processing {img_path}: {e}")
+            stats["processing_errors"] += 1
+            continue
+
+    # Print DTLD-specific statistics with nice formatting
+    print("\n" + "="*50)
+    print("DTLD Processing Report:")
+    print("="*50)
+    print(f"Total annotations processed: {stats['total']}")
+    print(f"Valid traffic light crops: {stats['valid']}")
+    print(f"Skipped - Invalid state/direction: {stats['invalid_state']}")
+    print(f"Skipped - Small crops: {stats['small_crop']}")
+    print(f"Processing errors: {stats['processing_errors']}")
+    print("\nValid crops by state:")
+    for state in STATES:
+        print(f"  - {state}: {stats['by_state'][state]}")
+    print("="*50)
+
+def create_diagnostic_report():
+    """Create a diagnostic report about the DTLD dataset"""
+    stats = {
+        "total_images": 0,
+        "accessible_images": 0,
+        "failed_images": 0,
+        "loaders": {
+            "tifffile": 0,
+            "pil": 0,
+            "opencv": 0,
+            "failed": 0
+        }
     }
     
-    with open(ANNOATION, "r") as f:
-        data = json.load(f)
-
-    for entry in tqdm(data["images"], desc="Processing images"):
-        rel_path = entry["image_path"]
-        full_path = os.path.normpath(os.path.join(ORIGINAL_DS_DIR, rel_path.lstrip('./')))
-        
-        # Skip if no traffic lights
-        if not entry["labels"]:
-            continue
-            
-        # Step 1: Convert TIFF to JPEG first (better color handling)
-        img_name = os.path.basename(rel_path)
-        jpg_path = os.path.join(temp_dir, os.path.splitext(img_name)[0] + ".png")
-        
-        try:
-            # Use tifffile with imagecodecs plugin
-            np_img = robust_tiff_reader(full_path)
-            
-            # Handle 16-bit conversion
-            if np_img is None or np_img.size == 0:
-                print(f"Empty image: {full_path}")
-                stats['skipped_dark'] += 1
-                continue
-            
-            # Apply gamma correction
-            avg_luminance = np.mean(cv2.cvtColor(np_img, cv2.COLOR_BGR2GRAY))
-            gamma = 0.5 if avg_luminance > 128 else 0.7
-            np_img = exposure.adjust_gamma(np_img, gamma=gamma)
-            
-            h_img, w_img = np_img.shape[:2]
-            
-            # Rest of your processing code remains the same...
-            debug_img = np_img.copy()
-            
-            for label in entry["labels"]:
-                stats['processed'] += 1
-
-        except Exception as e:
-            print(f"TIFF processing failed for {full_path}: {str(e)}")
-            stats['skipped_dark'] += 1
-            continue
-        
-        h_img, w_img = np_img.shape[:2]
-        
-        # Create debug visualization
-        debug_img = np_img.copy()
-        
-        for label in entry["labels"]:
-            stats['processed'] += 1
-            attr = label["attributes"]
-            
-            if attr["relevance"] != "relevant" or attr["direction"] != "front":
-                continue
-
-            x, y, w, h = label["x"], label["y"], label["w"], label["h"]
-            state = attr["state"]
-            
-            # Skip states that aren't in our defined states list
-            if state not in STATES:
-                print(f"Skipping unknown state: {state}")
-                stats['skipped_unknown_state'] += 1
-                continue
-            
-            # Skip very tiny traffic lights
-            if w < 4 or h < 8:
-                print(f"Skipping tiny traffic light: {w}x{h}")
-                stats['skipped_tiny'] += 1
-                continue
-            
-            # Use larger padding for small traffic lights
-            padding_factor = 1.5  # Default padding factor
-            
-            # Add more padding for small traffic lights
-            if w < 15:
-                padding_factor = 3.0
-            
-            x_padding = int(w * padding_factor)
-            y_padding = int(h * padding_factor)
-            
-            x0 = max(x - x_padding, 0)
-            y0 = max(y - y_padding, 0)
-            x1 = min(x + w + x_padding, w_img)
-            y1 = min(y + h + y_padding, h_img)
-            
-            # Draw on debug image
-            cv.rectangle(debug_img, (x, y), (x+w, y+h), (255, 0, 0), 2)  # Original box in red
-            cv.rectangle(debug_img, (x0, y0), (x1, y1), (0, 255, 0), 1)  # Padded box in green
-            cv.putText(debug_img, state, (x, y-5), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-
-            # Extract crop with original colors (no normalization)
-            crop = np_img[y0:y1, x0:x1].copy()
-            if crop.size == 0:
-                print(f"Empty crop at {rel_path} box {x,y,w,h}")
-                continue
-            
-            # Only basic contrast enhancement - no aggressive processing
-            # Simple auto-contrast to maximize dynamic range
-            crop_enhanced = crop.copy()
-            hsv = cv.cvtColor(crop_enhanced, cv.COLOR_RGB2HSV)
-            clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(4,4))
-            hsv[:, :, 2] = clahe.apply(hsv[:, :, 2])
-            crop_enhanced = cv.cvtColor(hsv, cv.COLOR_HSV2RGB)
-            
-            # Create a directory for this state
-            state_dir = os.path.join(CROP_DS, state)
-            os.makedirs(state_dir, exist_ok=True)
-            
-            # Save original crop with original colors (PNG for best quality)
-            base = os.path.splitext(os.path.basename(rel_path))[0]
-            out_name = f"{base}_{x}_{y}.png"
-            out_path = os.path.join(state_dir, out_name)
-            
-            # Use simple resize for training - no aggressive manipulation
-            resized_crop = cv.resize(crop_enhanced, IMG_SIZE, interpolation=cv.INTER_AREA)
-            
-            # Save crop for training (BGR for OpenCV)
-            cv.imwrite(out_path, cv.cvtColor(resized_crop, cv.COLOR_RGB2BGR))
-            stats['saved'][state] += 1
-            
-            # Save preview with both original and enhanced versions
-            preview_state_dir = os.path.join(preview_dir, state)
-            os.makedirs(preview_state_dir, exist_ok=True)
-            
-            # Side-by-side preview
-            preview_img = np.ones((80, 160, 3), dtype=np.uint8) * 255
-            crop_h, crop_w = crop.shape[:2]
-            
-            # Calculate display size
-            display_w = 40
-            display_h = int(crop_h * (display_w / crop_w))
-            if display_h > 60:
-                display_h = 60
-                display_w = int(crop_w * (display_h / crop_h))
-            
-            # Original and enhanced crops
-            display_crop = cv.resize(crop, (display_w, display_h), interpolation=cv.INTER_AREA)
-            display_enhanced = cv.resize(crop_enhanced, (display_w, display_h), interpolation=cv.INTER_AREA)
-            
-            # Paste both
-            y_offset = (80 - display_h) // 2
-            x_offset = (80 - display_w) // 2
-            preview_img[y_offset:y_offset+display_h, x_offset:x_offset+display_w] = display_crop
-            preview_img[y_offset:y_offset+display_h, 80+x_offset:80+x_offset+display_w] = display_enhanced
-            
-            # Add labels
-            font = cv.FONT_HERSHEY_SIMPLEX
-            cv.putText(preview_img, f"{w}x{h}", (5, 15), font, 0.4, (0, 0, 0), 1)
-            cv.putText(preview_img, state, (5, 75), font, 0.4, (0, 0, 0), 1)
-            
-            # Save preview
-            preview_path = os.path.join(preview_state_dir, out_name)
-            cv.imwrite(preview_path, cv.cvtColor(preview_img, cv.COLOR_RGB2BGR))
-        
-        # Save debug image without aggressive contrast enhancement
-        # Just a mild auto-contrast to preserve details
-        debug_rgb_norm = debug_img.copy()
-        for c in range(3):
-            channel = debug_rgb_norm[:,:,c]
-            p2 = np.percentile(channel, 2)
-            p98 = np.percentile(channel, 98)
-            if p98 > p2:
-                channel = np.clip((channel - p2) * 255.0 / (p98 - p2), 0, 255).astype(np.uint8)
-                debug_rgb_norm[:,:,c] = channel
-        
-        # Resize debug image to reasonable size
-        if max(h_img, w_img) > 1200:
-            scale = 1200 / max(h_img, w_img)
-            debug_rgb_norm = cv.resize(debug_rgb_norm, None, fx=scale, fy=scale, interpolation=cv.INTER_AREA)
-        
-        cv.imwrite(os.path.join(debug_dir, img_name), cv.cvtColor(debug_rgb_norm, cv.COLOR_RGB2BGR))
+    # Load annotations
+    with open(os.path.join(DTLD_DIR, "Berlin.json")) as f:
+        dataset = json.load(f)
     
-    # Print statistics
-    print("\nCropping statistics:")
-    print(f"Processed: {stats['processed']} crops")
-    print(f"Skipped tiny: {stats['skipped_tiny']} crops")
-    print(f"Skipped dark/low contrast: {stats['skipped_dark']} crops")
-    print(f"Skipped unknown states: {stats['skipped_unknown_state']} crops")
-    print("Saved crops by state:")
-    for state, count in stats['saved'].items():
-        print(f"  {state}: {count}")
+    # Create diagnostics directory
+    diag_dir = os.path.join(DTLD_DIR, "diagnostics")
+    os.makedirs(diag_dir, exist_ok=True)
+    
+    # Open file with UTF-8 encoding
+    with open(os.path.join(diag_dir, "loading_report.txt"), "w", encoding="utf-8") as report:
+        report.write("DTLD Dataset Loading Diagnostics\n")
+        report.write("===============================\n\n")
+        
+        for i, entry in enumerate(tqdm(dataset["images"][:20], desc="Diagnosing")):  # Reduce to 20 instead of 100
+            stats["total_images"] += 1
+            
+            rel_path = entry["image_path"]
+            if rel_path.startswith("./"):
+                rel_path = rel_path[2:]
+                
+            img_path = os.path.join(DTLD_DIR, rel_path)
+            
+            if not os.path.exists(img_path):
+                report.write(f"[MISSING] {img_path} - FILE MISSING\n")
+                stats["failed_images"] += 1
+                continue
+                
+            # Try different loading methods and record which one works
+            result = "[FAILED] Failed with all methods"
+            
+            # Method 1: PIL first (better for DTLD)
+            try:
+                with Image.open(img_path) as pil_img:
+                    pil_img = pil_img.convert('RGB')
+                    np_img = np.array(pil_img)
+                    cv_img = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+                    
+                    result = "[SUCCESS] Successfully loaded with PIL"
+                    stats["loaders"]["pil"] += 1
+                    stats["accessible_images"] += 1
+                    
+                    # Save diagnostic JPEG
+                    cv2.imwrite(os.path.join(diag_dir, f"sample_{i}_pil.jpg"), cv_img)
+            except Exception as e1:
+                # Method 2: Try tifffile with page access
+                try:
+                    with tifffile.TiffFile(img_path) as tif:
+                        # Get first page only
+                        page = tif.pages[0]
+                        img = page.asarray()
+                        
+                        # Handle 16-bit images
+                        if img.dtype == np.uint16:
+                            img = np.clip((img - np.min(img)) * 255.0 / (np.max(img) - np.min(img)), 0, 255).astype(np.uint8)
+                        
+                        # Ensure 3 channels
+                        if img.ndim == 2:
+                            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                        
+                        result = "[SUCCESS] Successfully loaded with tifffile (page)"
+                        stats["loaders"]["tifffile"] += 1
+                        stats["accessible_images"] += 1
+                        
+                        cv2.imwrite(os.path.join(diag_dir, f"sample_{i}_tifffile.jpg"), img)
+                except Exception as e2:
+                    # Method 3: OpenCV
+                    try:
+                        cv_img = cv2.imread(img_path)
+                        if cv_img is not None and cv_img.size > 0:
+                            result = "[SUCCESS] Successfully loaded with OpenCV"
+                            stats["loaders"]["opencv"] += 1
+                            stats["accessible_images"] += 1
+                            
+                            # Save diagnostic JPEG
+                            cv2.imwrite(os.path.join(diag_dir, f"sample_{i}_opencv.jpg"), cv_img)
+                        else:
+                            stats["loaders"]["failed"] += 1
+                            stats["failed_images"] += 1
+                    except Exception as e3:
+                        stats["loaders"]["failed"] += 1
+                        stats["failed_images"] += 1
+            
+            report.write(f"{result}: {img_path}\n")
+        
+        # Write summary statistics
+        report.write("\n\nSummary Statistics\n")
+        report.write("=================\n")
+        report.write(f"Total images examined: {stats['total_images']}\n")
+        if stats['total_images'] > 0:
+            report.write(f"Successfully loaded: {stats['accessible_images']} ({stats['accessible_images']/stats['total_images']*100:.1f}%)\n")
+            report.write(f"Failed to load: {stats['failed_images']} ({stats['failed_images']/stats['total_images']*100:.1f}%)\n\n")
+        report.write("Loading method stats:\n")
+        report.write(f"  tifffile: {stats['loaders']['tifffile']}\n")
+        report.write(f"  PIL: {stats['loaders']['pil']}\n") 
+        report.write(f"  OpenCV: {stats['loaders']['opencv']}\n")
+        report.write(f"  Failed: {stats['loaders']['failed']}\n")
+    
+    print(f"Diagnostic report created in {diag_dir}")
+    return stats
 
+if __name__ == "__main__":
+    # First test a sample TIFF file for brightness issues
+    test_img = os.path.join(DTLD_DIR, "Berlin/Berlin1/2015-04-17_10-50-41/DE_BBBR667_2015-04-17_10-50-46-968138_k0.tiff")
+    if os.path.exists(test_img):
+        print("Testing brightness handling on a single image first...")
+        check_brightness(test_img)
+        print("\nBrightness test completed. Continuing with dataset processing...\n")
 
-import warnings
-from PIL import Image, ImageSequence
-import numpy as np
-import cv2
-
-def robust_tiff_reader(filepath):
-    """Robust TIFF reader that handles various formats and edge cases"""
+    # Version checks
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            with Image.open(filepath) as img:
-                # Handle multi-page TIFFs
-                if 'n_frames' in dir(img) and img.n_frames > 1:
-                    img.seek(0)  # Get first frame
-                
-                # Handle 16-bit images
-                if img.mode == 'I;16':
-                    img = img.point(lambda i: i * (1./256)).convert('L')
-                
-                # Convert to RGB if needed
-                if img.mode != 'RGB':
-                    img = img.convert('RGB')
-                
-                # Convert to numpy array and then to BGR for OpenCV
-                img_array = np.array(img)
-                return cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-    
+        print(f"Using imagecodecs {imagecodecs.__version__}")
+        print(f"Using OpenCV {cv2.__version__}")
+        print(f"Using tifffile {tifffile.__version__}")
     except Exception as e:
-        # Fallback to tifffile if PIL fails
-        try:
-            import tifffile
-            img = tifffile.imread(filepath)
-            
-            # Handle 16-bit images
-            if img.dtype == np.uint16:
-                img = (img / 256).astype(np.uint8)
-            
-            # Handle grayscale
-            if len(img.shape) == 2:
-                img = np.stack((img,)*3, axis=-1)
-            
-            # Handle RGBA
-            elif img.shape[2] == 4:
-                img = img[..., :3]
-            
-            return img
-        
-        except Exception:
-            # Final fallback to OpenCV
-            img = cv2.imread(filepath, cv2.IMREAD_ANYCOLOR)
-            if img is not None:
-                return img
-            raise RuntimeError(f"All TIFF reading methods failed for {filepath}")
-
-crop_dataset()
+        print(f"Warning during version check: {e}")
+    
+    # Jump straight to crop_dataset (skip diagnostic report for now)
+    print("\nStarting crop process...")
+    crop_dataset()
