@@ -9,4 +9,6 @@ traffic_lights/classified_dataset
 traffic_sign/dataset
 traffic_lights/yolo_dataset
 traffic_lights/dtld_dataset
+traffic_lights/merged_dataset
+traffic_lights/debug_visualizations
 
