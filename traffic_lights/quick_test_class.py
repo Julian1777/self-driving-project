@@ -1,178 +1,170 @@
-import os
 import tensorflow as tf
 import numpy as np
-import matplotlib.pyplot as plt
 import cv2 as cv
-from tensorflow.keras.applications import EfficientNetB0
-from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout, Input, Lambda, Concatenate
+import matplotlib.pyplot as plt
+import os
+import glob
 from tensorflow.keras.models import Model
 
-# Define constants
+# Constants
 IMG_SIZE = (64, 64)
-STATES = ["green", "red", "yellow", "off"]
-CHECKPOINT_PATH = "traffic_light_classification_weights.h5"
-
-def create_model():
-    """Create the model architecture that exactly matches your checkpoint"""
-    # Input layer
-    inputs = Input(shape=(*IMG_SIZE, 3))
-    
-    # Data augmentation would have been here but we can skip it for inference
-    
-    # Create base model with EfficientNetB0
-    base_model = EfficientNetB0(include_top=False, input_tensor=inputs, weights=None)
-    
-    # Add global pooling
-    x = GlobalAveragePooling2D()(base_model.output)
-    
-    # Add dense layer with dropout (matching your training model)
-    cnn_features = Dense(128, activation='relu')(x)
-    cnn_features = Dropout(0.5)(cnn_features)
-    
-    # Create a dummy HSV feature extraction layer that matches your model
-    # This is a placeholder and won't actually perform the extraction
-    hsv_features = Lambda(lambda x: tf.zeros([tf.shape(x)[0], 28]))(inputs)
-    hsv_branch = Dense(32, activation='relu')(hsv_features)
-    
-    # Combine features
-    combined = Concatenate()([cnn_features, hsv_branch])
-    
-    # Final classification layer
-    outputs = Dense(len(STATES), activation='softmax')(combined)
-    
-    # Create model
-    model = Model(inputs=inputs, outputs=outputs)
-    return model
+STATES = ["red", "yellow", "green"]
+CHECKPOINT_PATH = "traffic_light_classification_checkpoint.h5"
+SAVED_MODEL_PATH = "traffic_light_classification_savedmodel"
 
 def process_image(image_path):
-    """Process an image for prediction"""
-    # Read image
     img = cv.imread(image_path)
     if img is None:
         raise ValueError(f"Could not read image: {image_path}")
     
-    # Convert to RGB
     img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-    
-    # Resize
     img_resized = cv.resize(img, IMG_SIZE)
-    
-    # Normalize
-    img_normalized = img_resized / 255.0
-    
-    # Add batch dimension
+    img_normalized = img_resized.astype(np.float32) / 255.0
     img_batch = np.expand_dims(img_normalized, 0)
     
     return img, img_batch
 
-def predict_light(image_path):
-    """Predict traffic light state from image"""
-    # Create model
-    model = create_model()
-    
-    # Load weights
-    print(f"Loading weights from {CHECKPOINT_PATH}")
-    model.load_weights(CHECKPOINT_PATH)
-    
-    # Process image
-    original, processed = process_image(image_path)
-    
-    # Make prediction
-    prediction = model.predict(processed, verbose=0)[0]
-    
-    # Get class with highest probability
-    class_idx = np.argmax(prediction)
-    class_name = STATES[class_idx]
-    confidence = prediction[class_idx]
-    
-    # Display results
-    plt.figure(figsize=(8, 4))
-    
-    # Original image
-    plt.subplot(1, 2, 1)
-    plt.imshow(original)
-    plt.title("Original Image")
-    plt.axis('off')
-    
-    # Display prediction
-    plt.subplot(1, 2, 2)
-    plt.imshow(cv.resize(original, (200, 200)))
-    plt.title(f"Prediction: {class_name}")
-    plt.xlabel(f"Confidence: {confidence:.2f}")
-    plt.axis('off')
-    
-    plt.tight_layout()
-    plt.show()
-    
-    return {
-        "state": class_name,
-        "confidence": float(confidence),
-        "probabilities": {state: float(prob) for state, prob in zip(STATES, prediction)}
-    }
+def load_checkpoint_model():
+    """Load model from checkpoint"""
+    try:
+        # Import from your classification module
+        from classification import build_traffic_light_model, hsv_feature_extraction
+        
+        print("Building model from checkpoint...")
+        model = build_traffic_light_model()
+        model.load_weights(CHECKPOINT_PATH)
+        print(f"Successfully loaded weights from {CHECKPOINT_PATH}")
+        
+        # Verify model loaded correctly
+        model_size_mb = sum(np.prod(w.shape) * w.dtype.size for w in model.weights) / (1024 * 1024)
+        print(f"Checkpoint model size: ~{model_size_mb:.2f} MB")
+        
+        return model
+    except Exception as e:
+        print(f"Error loading checkpoint model: {e}")
+        return None
 
-# Update the main execution section at the bottom of the file
+def load_saved_model():
+    """Load model from SavedModel directory"""
+    try:
+        print(f"Loading model from {SAVED_MODEL_PATH}...")
+        model = tf.saved_model.load(SAVED_MODEL_PATH)
+        
+        # Calculate approximate size
+        model_size_mb = sum(os.path.getsize(os.path.join(SAVED_MODEL_PATH, f)) 
+                          for f in os.listdir(SAVED_MODEL_PATH) 
+                          if os.path.isfile(os.path.join(SAVED_MODEL_PATH, f))) / (1024 * 1024)
+        print(f"SavedModel size: ~{model_size_mb:.2f} MB")
+        
+        return model
+    except Exception as e:
+        print(f"Error loading SavedModel: {e}")
+        return None
+
+def compare_models():
+    """Compare predictions between checkpoint and SavedModel"""
+    print("\n==== TRAFFIC LIGHT MODEL COMPARISON ====\n")
+    
+    # Load both models
+    checkpoint_model = load_checkpoint_model()
+    saved_model = load_saved_model()
+    
+    if not checkpoint_model or not saved_model:
+        print("Failed to load one or both models. Cannot compare.")
+        return
+    
+    # Find test images
+    test_dir = "test_images"
+    if not os.path.exists(test_dir):
+        print(f"Test directory '{test_dir}' not found!")
+        return
+    
+    test_images = glob.glob(f"{test_dir}/*.jpg") + glob.glob(f"{test_dir}/*.png")
+    if not test_images:
+        print("No test images found!")
+        return
+    
+    # Limit to 5 images
+    if len(test_images) > 5:
+        print(f"Found {len(test_images)} images, limiting to first 5")
+        test_images = test_images[:5]
+    else:
+        print(f"Found {len(test_images)} test images")
+    
+    # Process each image
+    for i, img_path in enumerate(test_images):
+        print(f"\n[{i+1}/{len(test_images)}] Testing image: {os.path.basename(img_path)}")
+        
+        # Get expected class from filename
+        expected_class = None
+        for state in STATES:
+            if state in os.path.basename(img_path).lower():
+                expected_class = state
+                break
+        if expected_class:
+            print(f"Expected class (from filename): {expected_class}")
+        
+        # Process image
+        original_img, img_batch = process_image(img_path)
+        
+        # Get prediction from checkpoint model
+        checkpoint_pred = checkpoint_model.predict(img_batch, verbose=0)[0]
+        checkpoint_class = STATES[np.argmax(checkpoint_pred)]
+        
+        # Get prediction from SavedModel
+        infer = saved_model.signatures["serving_default"]
+        saved_model_output = infer(tf.convert_to_tensor(img_batch, dtype=tf.float32))
+        output_key = list(saved_model_output.keys())[0]
+        saved_model_pred = saved_model_output[output_key].numpy()[0]
+        saved_model_class = STATES[np.argmax(saved_model_pred)]
+        
+        # Compare predictions
+        print(f"\nCheckpoint model prediction: {checkpoint_class}")
+        print("Checkpoint probabilities:")
+        for j, state in enumerate(STATES):
+            print(f"  {state}: {checkpoint_pred[j]:.4f}")
+        
+        print(f"\nSavedModel prediction: {saved_model_class}")
+        print("SavedModel probabilities:")
+        for j, state in enumerate(STATES):
+            print(f"  {state}: {saved_model_pred[j]:.4f}")
+        
+        # Check if predictions match
+        if checkpoint_class != saved_model_class:
+            print("\n⚠️ WARNING: Models gave different predictions!")
+        
+        # Visualize
+        plt.figure(figsize=(12, 8))
+        
+        # Original image
+        plt.subplot(2, 2, 1)
+        plt.imshow(original_img)
+        plt.title(f"Traffic Light - {os.path.basename(img_path)}")
+        plt.axis('off')
+        
+        # Checkpoint prediction
+        plt.subplot(2, 2, 3)
+        colors = ['green', 'red', 'yellow', 'gray']
+        plt.barh(STATES, checkpoint_pred, color=colors)
+        plt.xlim(0, 1)
+        title = f"Checkpoint: {checkpoint_class}"
+        if expected_class and expected_class != checkpoint_class:
+            title += f" (Expected: {expected_class} ⚠️)"
+        plt.title(title)
+        
+        # SavedModel prediction
+        plt.subplot(2, 2, 4)
+        plt.barh(STATES, saved_model_pred, color=colors)
+        plt.xlim(0, 1)
+        title = f"SavedModel: {saved_model_class}"
+        if expected_class and expected_class != saved_model_class:
+            title += f" (Expected: {expected_class})"
+        plt.title(title)
+        
+        plt.tight_layout()
+        plt.show()
+    
+    print("\n==== COMPARISON COMPLETE ====")
 
 if __name__ == "__main__":
-    # Debug output for class labels
-    print("Using the following class labels:")
-    for i, state in enumerate(STATES):
-        print(f"  Index {i}: {state}")
-    print()
-    
-    # Test with a known image
-    test_image = "traffic_light2_go.jpg"
-    
-    if os.path.exists(test_image):
-        print(f"Using test image: {test_image}")
-        try:
-            result = predict_light(test_image)
-            print(f"\nPrediction: {result['state']}")
-            print(f"Confidence: {result['confidence']:.2f}")
-            
-            print("\nAll class probabilities:")
-            for state, prob in result['probabilities'].items():
-                print(f"  {state}: {prob:.4f}")
-                
-            # Check for potential mismatch
-            if result['confidence'] > 0.9:
-                print("\nWARNING: High confidence prediction. If incorrect, class order might be wrong.")
-                print("Try these alternative class orderings:")
-                
-                # Alternative 1: LISA dataset order
-                alt1 = ["red", "green", "yellow", "off"]
-                print("\nAlternative 1:", alt1)
-                alt1_idx = np.argmax(result['probabilities'].values())
-                print(f"With this ordering, prediction would be: {alt1[alt1_idx]}")
-                
-                # Alternative 2: Another common ordering
-                alt2 = ["off", "red", "yellow", "green"]
-                print("\nAlternative 2:", alt2)
-                alt2_idx = np.argmax(result['probabilities'].values())
-                print(f"With this ordering, prediction would be: {alt2[alt2_idx]}")
-        except Exception as e:
-            print(f"Error during prediction: {e}")
-    else:
-        print(f"Test image '{test_image}' not found.")
-        
-        # Try to find any traffic light images
-        possible_dirs = ["./dataset", "./cropped_dataset", "./merged_dataset"]
-        for dir in possible_dirs:
-            if os.path.exists(dir):
-                for state in STATES:
-                    state_dir = os.path.join(dir, state)
-                    if os.path.exists(state_dir):
-                        files = [f for f in os.listdir(state_dir) 
-                                if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-                        if files:
-                            sample = os.path.join(state_dir, files[0])
-                            print(f"\nFound alternative test image: {sample}")
-                            print(f"True class should be: {state}")
-                            try:
-                                result = predict_light(sample)
-                                print(f"Prediction: {result['state']} (Confidence: {result['confidence']:.2f})")
-                                print("This will help verify if the class ordering is correct.")
-                            except Exception as e:
-                                print(f"Error testing with alternative image: {e}")
-                            break
-                    break
-                break
+    compare_models()

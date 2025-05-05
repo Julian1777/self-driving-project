@@ -12,30 +12,30 @@ from tensorflow.keras.callbacks import EarlyStopping
 import json
 import csv
 import numpy as np
+from ultralytics import YOLO
+from datetime import datetime
+import torch
 
 
-# Config
+
+
+
 SOURCE_DIR = "dataset"
 TARGET_DIR = "yolo_dataset"
 TRAIN_RATIO = 0.9
 CLASS_ID = 0
-EPOCHS = 20
+EPOCHS = 80
+BATCH_SIZE = 64
 GRID_SIZE = 7
 BOXES_PER_CELL = 2
+IMG_SIZE = (640,640)
+YOLO_MODEL_SIZE = "l"
 DTLD_DIR = "dtld_dataset"
 LISA_DIR = "lisa_dataset"
-STATES = ["green", "red", "yellow", "off"]
+STATES = ["red", "yellow", "green"]
 ANNOTATION = os.path.join(DTLD_DIR, "Berlin.json")
 sequences = ["daySequence1", "daySequence2", "dayTrain", "nightSequence1", "nightSequence2", "nightTrain"]
 DTLD_CITIES = ["Berlin", "Bochum", "Dortmund", "Bremen", "Koeln"]
-
-
-
-os.makedirs(f"{TARGET_DIR}/images/train", exist_ok=True)
-os.makedirs(f"{TARGET_DIR}/images/val", exist_ok=True)
-os.makedirs(f"{TARGET_DIR}/labels/train", exist_ok=True)
-os.makedirs(f"{TARGET_DIR}/labels/val", exist_ok=True)
-os.makedirs(os.path.join(TARGET_DIR, "Annotations"), exist_ok=True)
 
 data_augmentation = tf.keras.Sequential([
     tf.keras.layers.RandomFlip("horizontal"),
@@ -328,7 +328,6 @@ def generate_yolo_labels():
     print("YOLO label generation complete!")
 
 def generate_labels_for_dir(split, dtld_annotations, lisa_annotations):
-    """Generate labels for a specific directory (train or val)."""
     image_dir = os.path.join(TARGET_DIR, "images", split)
     label_dir = os.path.join(TARGET_DIR, "labels", split)
     
@@ -417,18 +416,22 @@ def find_original_image_name(img_path, img_file):
     return img_file
 
 def crop_around_traffic_lights(padding=30):
+    global TARGET_DIR
+    
     print(f"Creating cropped traffic light dataset with {padding}px padding...")
     
-    crops_dir = os.path.join(TARGET_DIR, "crops")
+    crops_dir = TARGET_DIR
     crops_images_train = os.path.join(crops_dir, "images", "train")
-    crops_images_val = os.path.join(crops_dir, "images", "val")
+    crops_images_val = os.path.join(crops_dir, "images", "val") 
     crops_labels_train = os.path.join(crops_dir, "labels", "train")
     crops_labels_val = os.path.join(crops_dir, "labels", "val")
     
-    os.makedirs(crops_images_train, exist_ok=True)
-    os.makedirs(crops_images_val, exist_ok=True)
-    os.makedirs(crops_labels_train, exist_ok=True)
-    os.makedirs(crops_labels_val, exist_ok=True)
+    for dir_path in [crops_images_train, crops_images_val, crops_labels_train, crops_labels_val]:
+        os.makedirs(dir_path, exist_ok=True)
+        for file in os.listdir(dir_path):
+            file_path = os.path.join(dir_path, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
     
     for split in ["train", "val"]:
         image_dir = os.path.join(TARGET_DIR, "images", split)
@@ -514,10 +517,10 @@ def crop_around_traffic_lights(padding=30):
         print(f"Created {total_crops} crops for {split} set")
     
     dataset_yaml = {
-        'train': os.path.join(crops_dir, "images", "train"),
-        'val': os.path.join(crops_dir, "images", "val"),
-        'nc': 1,  # Number of classes
-        'names': ['traffic_light']
+        'train': "./images/train",
+        'val': "./images/val",
+        'nc': 3,  # Number of classes
+        'names': STATES
     }
     
     with open(os.path.join(crops_dir, "dataset.yaml"), 'w') as f:
@@ -525,47 +528,12 @@ def crop_around_traffic_lights(padding=30):
             f.write(f"{key}: {value}\n")
     
     print(f"Cropped dataset created in {crops_dir}")
-    
-    global TARGET_DIR
-    TARGET_DIR = crops_dir
-    
     return crops_dir
 
-def yolo_model(input_shape=(224,224,3), grid_size=7, boxes_per_cell=2):
-    outputs_per_box = 5
-    output_size = grid_size * grid_size * boxes_per_cell * outputs_per_box
-
-    inputs = tf.keras.Input(shape=input_shape)
-
-    x = data_augmentation(inputs)
-
-    x = layers.Conv2D(64, 3, padding='same', activation='relu')(x)
-    x = layers.MaxPooling2D()(x)
-
-    x = layers.Conv2D(128, 3, padding='same', activation='relu')(x)
-    x = layers.MaxPooling2D()(x)
-
-    x = layers.Conv2D(256, 3, padding='same', activation='relu')(x)
-    x = layers.MaxPooling2D()(x)
-
-    x = layers.Conv2D(512, 3, padding='same', activation='relu')(x)
-    x = layers.MaxPooling2D()(x)
-
-    x = layers.Conv2D(1024, 3, padding='same', activation='relu')(x)
-
-    x = layers.Conv2D(512, 3, padding='same', activation='relu')(x)
-    x = layers.Conv2D(256, 3, padding='same', activation='relu')(x)
-
-    x = layers.Flatten()(x)
-    x = layers.Dense(1024, activation='relu')(x)
-    x = layers.Dense(output_size, activation='sigmoid')(x)
 
 
-    outputs = layers.Reshape((grid_size, grid_size, boxes_per_cell, outputs_per_box))(x)
 
-    return models.Model(inputs, outputs)
-
-def load_dataset(image_dir, label_dir, image_size=(224, 224), grid_size=7, boxes_per_cell=2):
+def load_dataset(image_dir, label_dir, image_size=(IMG_SIZE), grid_size=7, boxes_per_cell=2):
     def load_example(img_path):
         img_path_str = img_path.numpy().decode()
         base_name = os.path.splitext(os.path.basename(img_path_str))[0]
@@ -617,299 +585,251 @@ def load_dataset(image_dir, label_dir, image_size=(224, 224), grid_size=7, boxes
     dataset = dataset.shuffle(500).batch(32).prefetch(tf.data.AUTOTUNE)
     return dataset
 
-def non_max_suppression(boxes, scores, iou_threshold=0.5):
-    if len(boxes) == 0:
-        return []
+def detect_traffic_lights(model, image_path):
+    results = model.predict(image_path, conf=0.25)
     
-    boxes = np.array(boxes)
-    scores = np.array(scores)
-    
-    indices = np.argsort(scores)[::-1]
-    
-    keep = []
-    while indices.size > 0:
-        i = indices[0]
-        keep.append(i)
+    traffic_lights = []
+    for result in results:
+        boxes = result.boxes.xyxy.cpu().numpy()
+        confs = result.boxes.conf.cpu().numpy()
         
-        remaining = indices[1:]
-        ious = np.array([calculate_iou(boxes[i], boxes[j]) for j in remaining])
-        
-        indices = remaining[ious <= iou_threshold]
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = map(int, box)
+            conf = confs[i]
+            traffic_lights.append({
+                'bbox': (x1, y1, x2, y2),
+                'confidence': float(conf)
+            })
     
-    return keep
+    return traffic_lights, results
 
-def evaluate_detection_model(model, dataset, iou_thresholds=[0.5]):
-    all_predictions = []
-    all_ground_truths = []
+def evaluate_detection_model(model_path, data_yaml, conf_threshold=0.25, iou_threshold=0.5, save_dir="metrics"):
+    os.makedirs(save_dir, exist_ok=True)
     
-    for batch_images, batch_targets in dataset:
-        predictions = model.predict(batch_images, verbose=0)
-        
-        for i in range(len(batch_images)):
-            pred = predictions[i]
-            target = batch_targets[i]
-            
-            pred_boxes = []
-            pred_scores = []
-            
-            grid_size = pred.shape[0]
-            boxes_per_cell = pred.shape[2]
-            
-            for grid_y in range(grid_size):
-                for grid_x in range(grid_size):
-                    for b in range(boxes_per_cell):
-                        cell_x = pred[grid_y, grid_x, b, 0]
-                        cell_y = pred[grid_y, grid_x, b, 1]
-                        cell_w = pred[grid_y, grid_x, b, 2]
-                        cell_h = pred[grid_y, grid_x, b, 3]
-                        confidence = pred[grid_y, grid_x, b, 4]
-                        
-                        if confidence < 0.1:
-                            continue
-                        
-                        x_center = (grid_x + cell_x) / grid_size
-                        y_center = (grid_y + cell_y) / grid_size
-                        
-                        x_min = x_center - cell_w/2
-                        y_min = y_center - cell_h/2
-                        x_max = x_center + cell_w/2
-                        y_max = y_center + cell_h/2
-                        
-                        pred_boxes.append([x_min, y_min, x_max, y_max])
-                        pred_scores.append(confidence)
-            
-            # Apply NMS
-            if pred_boxes:
-                keep_indices = non_max_suppression(pred_boxes, pred_scores)
-                pred_boxes = [pred_boxes[i] for i in keep_indices]
-                pred_scores = [pred_scores[i] for i in keep_indices]
-            
-            gt_boxes = []
-            
-            for grid_y in range(grid_size):
-                for grid_x in range(grid_size):
-                    for b in range(boxes_per_cell):
-                        confidence = target[grid_y, grid_x, b, 4]
-                        
-                        if confidence > 0.5:
-                            cell_x = target[grid_y, grid_x, b, 0]
-                            cell_y = target[grid_y, grid_x, b, 1]
-                            cell_w = target[grid_y, grid_x, b, 2]
-                            cell_h = target[grid_y, grid_x, b, 3]
-                            
-                            x_center = (grid_x + cell_x) / grid_size
-                            y_center = (grid_y + cell_y) / grid_size
-                            
-                            x_min = x_center - cell_w/2
-                            y_min = y_center - cell_h/2
-                            x_max = x_center + cell_w/2
-                            y_max = y_center + cell_h/2
-                            
-                            gt_boxes.append([x_min, y_min, x_max, y_max])
-            
-            all_predictions.append((pred_boxes, pred_scores))
-            all_ground_truths.append(gt_boxes)
+    model = YOLO(model_path)
     
-    map_values = {}
-    
-    for iou_threshold in iou_thresholds:
-        precisions = []
-        recalls = []
-        
-        for (pred_boxes, pred_scores), gt_boxes in zip(all_predictions, all_ground_truths):
-            if len(gt_boxes) == 0:
-                if len(pred_boxes) == 0:
-                    precisions.append(1.0)
-                    recalls.append(1.0)
-                else:
-                    precisions.append(0.0)
-                    recalls.append(1.0)
-                continue
-            
-            if len(pred_boxes) == 0:
-                precisions.append(1.0)
-                recalls.append(0.0)
-                continue
-            
-            matches = np.zeros(len(gt_boxes), dtype=bool)
-            
-            tp = 0
-            fp = 0
-            
-            for pred_box in pred_boxes:
-                best_iou = 0
-                best_idx = -1
-                
-                for i, gt_box in enumerate(gt_boxes):
-                    if matches[i]:
-                        continue
-                    
-                    iou = calculate_iou(pred_box, gt_box)
-                    if iou > best_iou:
-                        best_iou = iou
-                        best_idx = i
-                
-                if best_idx >= 0 and best_iou >= iou_threshold:
-                    tp += 1
-                    matches[best_idx] = True
-                else:
-                    fp += 1
-            
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
-            recall = tp / len(gt_boxes)
-            
-            precisions.append(precision)
-            recalls.append(recall)
-        
-        if precisions:
-            map_values[iou_threshold] = sum(precisions) / len(precisions)
-        else:
-            map_values[iou_threshold] = 0.0
-    
-    map_values['mean'] = sum(map_values.values()) / len(map_values)
-    
-    return map_values
-
-def yolo_loss(y_true, y_pred):
-    pred_xy = y_pred[..., 0:2]  # center x, y
-    pred_wh = y_pred[..., 2:4]  # width, height
-    pred_conf = y_pred[..., 4:5]  # confidence
-    
-    true_xy = y_true[..., 0:2]
-    true_wh = y_true[..., 2:4]
-    true_conf = y_true[..., 4:5]
-    
-    object_mask = tf.cast(true_conf > 0.5, tf.float32)
-    
-    lambda_coord = 5.0
-    lambda_noobj = 0.5
-    
-    xy_loss = lambda_coord * tf.reduce_sum(
-        object_mask * tf.reduce_sum(tf.square(true_xy - pred_xy), axis=-1, keepdims=True)
+    metrics = model.val(
+        data=data_yaml,
+        conf=conf_threshold,
+        iou=iou_threshold,
+        verbose=True,
+        save_json=True,
+        save_hybrid=True,
+        plots=True
     )
     
-    true_wh_sqrt = tf.sqrt(tf.maximum(true_wh, 1e-7))
-    pred_wh_sqrt = tf.sqrt(tf.maximum(pred_wh, 1e-7))
+    results = {
+        "mAP50": float(metrics.box.map50),  # mAP at IoU=0.5
+        "mAP50-95": float(metrics.box.map),  # mAP at IoU=0.5:0.95
+        "precision": float(metrics.box.mp),  # mean precision
+        "recall": float(metrics.box.mr),     # mean recall
+        "f1": float(metrics.box.map50 * 2 / (metrics.box.mp + metrics.box.mr + 1e-10)),  # F1 score
+        "conf_threshold": conf_threshold,
+        "iou_threshold": iou_threshold,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
     
-    wh_loss = lambda_coord * tf.reduce_sum(
-        object_mask * tf.reduce_sum(tf.square(true_wh_sqrt - pred_wh_sqrt), axis=-1, keepdims=True)
-    )
+    per_class_ap = {}
+    if hasattr(metrics.box, 'ap_class_index') and hasattr(metrics.box, 'ap50'):
+        class_names = model.names
+        for i, class_idx in enumerate(metrics.box.ap_class_index):
+            class_name = class_names[int(class_idx)]
+            per_class_ap[class_name] = float(metrics.box.ap50[i])
+        results["per_class_ap50"] = per_class_ap
     
-    conf_obj_loss = tf.reduce_sum(
-        object_mask * tf.square(true_conf - pred_conf)
-    )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    create_metrics_visualizations(results, save_dir, timestamp)
     
-    conf_noobj_loss = lambda_noobj * tf.reduce_sum(
-        (1 - object_mask) * tf.square(true_conf - pred_conf)
-    )
+    print("\n===== DETECTION MODEL EVALUATION =====")
+    print(f"mAP@0.5: {results['mAP50']:.4f}")
+    print(f"mAP@0.5:0.95: {results['mAP50-95']:.4f}")
+    print(f"Precision: {results['precision']:.4f}")
+    print(f"Recall: {results['recall']:.4f}")
+    print(f"F1 Score: {results['f1']:.4f}")
     
-    batch_size = tf.cast(tf.shape(y_true)[0], tf.float32)
-    total_loss = (xy_loss + wh_loss + conf_obj_loss + conf_noobj_loss) / batch_size
+    if "per_class_ap50" in results:
+        print("\nPer-class AP@0.5:")
+        for class_name, ap in results["per_class_ap50"].items():
+            print(f"  {class_name}: {ap:.4f}")
     
-    return total_loss
+    return results
 
-def calculate_iou(box1, box2):
-    x1 = max(box1[0], box2[0])
-    y1 = max(box1[1], box2[1])
-    x2 = min(box1[2], box2[2])
-    y2 = min(box1[3], box2[3])
+def create_metrics_visualizations(results, save_dir, timestamp):
+    plt.figure(figsize=(12, 8))
     
-    intersection_area = max(0, x2 - x1) * max(0, y2 - y1)
+    main_metrics = ['mAP50', 'mAP50-95', 'precision', 'recall', 'f1']
+    metric_values = [results[m] for m in main_metrics]
     
-    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    plt.subplot(2, 1, 1)
+    bars = plt.bar(main_metrics, metric_values, color='skyblue')
+    plt.ylim(0, 1.0)
+    plt.ylabel('Score')
+    plt.title('YOLO Detection Model Performance Metrics')
     
-    union_area = box1_area + box2_area - intersection_area
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height,
+                 f'{height:.4f}',
+                 ha='center', va='bottom', rotation=0)
     
-    if union_area <= 0:
-        return 0
+    if "per_class_ap50" in results:
+        plt.subplot(2, 1, 2)
+        classes = list(results["per_class_ap50"].keys())
+        ap_values = list(results["per_class_ap50"].values())
+        
+        sorted_indices = np.argsort(ap_values)
+        classes = [classes[i] for i in sorted_indices]
+        ap_values = [ap_values[i] for i in sorted_indices]
+        
+        bars = plt.barh(classes, ap_values, color='lightgreen')
+        plt.xlim(0, 1.0)
+        plt.xlabel('AP@0.5')
+        plt.title('Per-class Average Precision (IoU=0.5)')
+        
+        for bar in bars:
+            width = bar.get_width()
+            plt.text(width, bar.get_y() + bar.get_height()/2.,
+                     f'{width:.4f}',
+                     ha='left', va='center')
     
-    return intersection_area / union_area
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, f"detection_metrics_{timestamp}.png"))
+    
+    metrics_files = [f for f in os.listdir(save_dir) if f.endswith('.json')]
+    if len(metrics_files) > 1:
+        all_metrics = []
+        for file in metrics_files:
+            with open(os.path.join(save_dir, file), 'r') as f:
+                data = json.load(f)
+                all_metrics.append(data)
+        
+        all_metrics = sorted(all_metrics, key=lambda x: x.get('timestamp', ''))
+        
+        plt.figure(figsize=(10, 6))
+        timestamps = [m.get('timestamp', 'Unknown') for m in all_metrics]
+        map50_values = [m.get('mAP50', 0) for m in all_metrics]
+        map_values = [m.get('mAP50-95', 0) for m in all_metrics]
+        
+        plt.plot(timestamps, map50_values, 'o-', label='mAP@0.5')
+        plt.plot(timestamps, map_values, 's-', label='mAP@0.5:0.95')
+        plt.xticks(rotation=45)
+        plt.ylim(0, 1.0)
+        plt.title('Detection Performance Trend')
+        plt.ylabel('mAP Score')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, "detection_metric_trends.png"))
 
 
-if not os.path.exists(os.path.join(TARGET_DIR, "dataset.yaml")):
-    prepare_yolo_dataset()
-    generate_yolo_labels()
-else:
-    if not os.listdir(os.path.join(TARGET_DIR, "labels", "train")):
-        print("Labels not found. Generating labels...")
+if __name__ == '__main__':
+
+    print(f"PyTorch CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"Number of CUDA devices: {torch.cuda.device_count()}")
+        print(f"Current CUDA device: {torch.cuda.current_device()}")
+        device = '0'
+    else:
+        print("No CUDA devices available, using CPU")
+        device = 'cpu'
+
+    os.makedirs(f"{TARGET_DIR}/images/train", exist_ok=True)
+    os.makedirs(f"{TARGET_DIR}/images/val", exist_ok=True)
+    os.makedirs(f"{TARGET_DIR}/labels/train", exist_ok=True)
+    os.makedirs(f"{TARGET_DIR}/labels/val", exist_ok=True)
+    os.makedirs(os.path.join(TARGET_DIR, "Annotations"), exist_ok=True)
+
+
+    train_img_dir = os.path.join(TARGET_DIR, "images", "train")
+    if not os.path.exists(train_img_dir) or len(os.listdir(train_img_dir)) == 0:
+        print("No training images found. Running dataset preparation...")
+        prepare_yolo_dataset()
         generate_yolo_labels()
     else:
-        print("Dataset and labels already exist. Skipping preparation.")
+        label_dir = os.path.join(TARGET_DIR, "labels", "train")
+        if not os.path.exists(label_dir) or len(os.listdir(label_dir)) == 0:
+            print("Labels not found. Generating labels...")
+            generate_yolo_labels()
+        else:
+            print("Dataset and labels already exist. Skipping preparation.")
 
-        
-if not os.path.exists(os.path.join(TARGET_DIR, "crops")):
-    print("Creating cropped dataset...")
-    crop_around_traffic_lights(padding=30)
-    TARGET_DIR = os.path.join(TARGET_DIR, "crops")
+            
+    if not os.path.exists(os.path.join(TARGET_DIR, "images")):
+        print("Creating cropped dataset...")
+        crop_around_traffic_lights(padding=30)
 
-train_dataset = load_dataset(
-    os.path.join(TARGET_DIR, "images", "train"),
-    os.path.join(TARGET_DIR, "labels", "train"),
-    grid_size=GRID_SIZE, 
-    boxes_per_cell=BOXES_PER_CELL
-)
-
-val_dataset = load_dataset(
-    os.path.join(TARGET_DIR, "images", "val"),
-    os.path.join(TARGET_DIR, "labels", "val"),
-    grid_size=GRID_SIZE, 
-    boxes_per_cell=BOXES_PER_CELL
-)
-
-model = yolo_model(grid_size=GRID_SIZE, boxes_per_cell=BOXES_PER_CELL)
-
-if os.path.exists("traffic_light_detection.h5"):
-    print("Model already exists. Loading model...")
-    model = tf.keras.models.load_model("traffic_light_classification.h5")
-    print("Model loaded successfully.")
-elif os.path.exists("traffic_light_detection_checkpoint.h5"):
-    print("Using Checkpoint model...")
-    model = tf.keras.models.load_model("best_light_detection_model.h5") 
-    print("Model loaded successfully.")
-else:
-
-    early_stopping = EarlyStopping(
-        monitor='val_loss', 
-        patience=5, 
-        restore_best_weights=True
+    train_dataset = load_dataset(
+        os.path.join(TARGET_DIR, "images", "train"),
+        os.path.join(TARGET_DIR, "labels", "train"),
+        grid_size=GRID_SIZE, 
+        boxes_per_cell=BOXES_PER_CELL
     )
 
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        "traffic_light_detection_checkpoint.h5",
-        monitor="val_loss",
-        save_best_only=True,
-        verbose=1
+    val_dataset = load_dataset(
+        os.path.join(TARGET_DIR, "images", "val"),
+        os.path.join(TARGET_DIR, "labels", "val"),
+        grid_size=GRID_SIZE, 
+        boxes_per_cell=BOXES_PER_CELL
     )
 
-    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-        monitor='val_loss',
-        factor=0.5,
-        patience=3,
-        min_lr=1e-6,
-        verbose=1
-    )
+    train_path = os.path.join(TARGET_DIR, "images", "train")
+    val_path = os.path.join(TARGET_DIR, "images", "val")
 
-    model.compile(
-        optimizer='adam',
-        loss=yolo_loss,
-    )
+    print(f"Train directory: {train_path}")
+    print(f"Train directory exists: {os.path.exists(train_path)}")
+    if os.path.exists(train_path):
+        files = os.listdir(train_path)
+        print(f"Files in train directory: {len(files)}")
+        if len(files) > 0:
+            print(f"Sample files: {files[:5]}")
 
-    history = model.fit(
-        train_dataset,
-        validation_data=val_dataset,
+    print(f"Val directory: {val_path}")
+    print(f"Val directory exists: {os.path.exists(val_path)}")
+    if os.path.exists(val_path):
+        files = os.listdir(val_path)
+        print(f"Files in val directory: {len(files)}")
+        if len(files) > 0:
+            print(f"Sample files: {files[:5]}")
+
+    model = YOLO("yolov8l.pt")
+
+    dataset_yaml_path = os.path.abspath(os.path.join(TARGET_DIR, "dataset.yaml"))
+
+    print(f"Using dataset YAML at: {dataset_yaml_path}")
+    print(f"Dataset YAML exists: {os.path.exists(dataset_yaml_path)}")
+
+    with open(dataset_yaml_path, "w") as f:
+        f.write(f"train: ./images/train\n")
+        f.write(f"val: ./images/val\n")
+        f.write(f"nc: 3\n")
+        f.write(f"names: {STATES}\n")
+
+    print("Updated YAML file with proper paths")
+    with open(dataset_yaml_path, "r") as f:
+        print(f.read())
+
+    results = model.train(
+        data=dataset_yaml_path,
         epochs=EPOCHS,
-        batch_size=None,
-        verbose=1,
-        callbacks=[checkpoint, early_stopping, reduce_lr]
+        imgsz=IMG_SIZE,
+        batch=BATCH_SIZE,
+        name='yolo_traffic_light_detector',
+        patience=10,
+        save=True,
+        device=device
     )
-    model.save('traffic_light_detection.h5')
-
-    plt.figure(figsize=(12, 4))
-    plt.subplot(1, 2, 1)
-    plt.plot(history.history['loss'], label='train loss')
-    plt.plot(history.history['val_loss'], label='val loss')
-    plt.legend()
-    plt.title('Training Loss')
 
 
+    metrics = model.val(data=dataset_yaml_path)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    best_model_path = os.path.join("runs", "detect", "yolo_traffic_light_detector", "weights", "best.pt")
+
+    evaluation_results = evaluate_detection_model(
+        model_path=best_model_path,
+        data_yaml=dataset_yaml_path,
+        conf_threshold=0.25,
+        iou_threshold=0.5,
+        save_dir="detection_metrics"
+    )

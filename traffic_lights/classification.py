@@ -5,8 +5,7 @@ from tqdm import tqdm
 from sklearn.utils import class_weight
 import numpy as np
 from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.applications import EfficientNetB0
-from tensorflow.keras.layers import Input, GlobalAveragePooling2D, Dense, Dropout, Concatenate, Lambda
+from tensorflow.keras.layers import Input, Dense, Dropout, MaxPooling2D, Lambda, Conv2D, BatchNormalization, Flatten, Concatenate
 from tensorflow.keras.models import Model
 import json
 import cv2 as cv
@@ -19,21 +18,26 @@ BATCH_SIZE = 64
 IMG_SIZE = (64,64)
 INPUT_SHAPE = (64, 64, 3)
 SEED = 123
-EPOCHS = 20
+EPOCHS = 30
 PADDING = 5
+CROP_LEFT_RIGHT = 12
+CROP_TOP_BOTTOM = 3
 
 DTLD_DIR = "dtld_dataset"
 LISA_DIR = "lisa_dataset"
-STATES = ["green", "red", "yellow", "off"]
+STATES = ["red", "yellow", "green"]
 ANNOTATION = os.path.join(DTLD_DIR, "Berlin.json")
 CROP_DS_DTLD = os.path.join(DTLD_DIR, "cropped_dataset")
 CROP_DS_LISA = os.path.join(LISA_DIR, "cropped_dataset")
+MISCLASSIFIED_DIR = "misclassified_images"
 STATE_DIRS_LISA = {state: os.path.join(CROP_DS_LISA, state) for state in STATES}
 VALID_DIRECTIONS = ["front"]
 VALID_RELEVANCE = ["relevant"]
 MERGED_DS = "merged_dataset"
 sequences = ["daySequence1", "daySequence2", "dayTrain", "nightSequence1", "nightSequence2", "nightTrain"]
 DTLD_CITIES = ["Berlin", "Bochum", "Dortmund", "Bremen", "Koeln"]
+
+os.makedirs(MISCLASSIFIED_DIR, exist_ok=True)
 
 def process_lisa_dataset(force_overwrite=False):
     print(f"Processing LISA dataset from {LISA_DIR}")
@@ -248,6 +252,7 @@ def process_dtld_dataset():
     
     for state in STATES:
         os.makedirs(os.path.join(CROP_DS_DTLD, state), exist_ok=True)
+        os.makedirs(os.path.join(MISCLASSIFIED_DIR, state), exist_ok=True)
     
     if not os.path.exists(ANNOTATION):
         print(f"Error: Annotation file not found: {ANNOTATION}")
@@ -464,20 +469,12 @@ def create_merged_dataset():
     print(f"Total: {total_images} images in merged dataset")
 
 def visualize_sample_annotations(dataset_type, num_samples=5):
-    """
-    Visualize sample images with bounding boxes to debug crop positions.
-    
-    Args:
-        dataset_type: 'dtld' or 'lisa' to specify which dataset to visualize
-        num_samples: Number of sample images to visualize
-    """
     print(f"Visualizing sample {dataset_type.upper()} images with bounding boxes...")
     
     debug_dir = os.path.join("debug_visualizations", dataset_type)
     os.makedirs(debug_dir, exist_ok=True)
     
     if dataset_type.lower() == 'dtld':
-        # Visualize DTLD dataset
         try:
             with open(ANNOTATION, 'r') as f:
                 data = json.load(f)
@@ -499,21 +496,17 @@ def visualize_sample_annotations(dataset_type, num_samples=5):
                     continue
                 
                 try:
-                    # Load image
                     pil_image = Image.open(img_path)
                     np_img = np.array(pil_image)
                     
-                    # Convert 16-bit to 8-bit if needed
                     if np_img.dtype == np.uint16:
                         np_img = ((np_img - np_img.min()) * 255.0 / (np_img.max() - np_img.min())).astype(np.uint8)
                     
-                    # Convert grayscale to BGR
                     if len(np_img.shape) == 2:
                         np_img = cv.cvtColor(np_img, cv.COLOR_GRAY2BGR)
                     elif np_img.shape[2] == 3 and pil_image.mode == 'RGB':
                         np_img = cv.cvtColor(np_img, cv.COLOR_RGB2BGR)
                     
-                    # Draw bounding boxes for traffic lights
                     for label in image_entry.get("labels", []):
                         attr = label.get("attributes", {})
                         
@@ -524,30 +517,24 @@ def visualize_sample_annotations(dataset_type, num_samples=5):
                             if state in STATES:
                                 x, y, w, h = label.get("x", 0), label.get("y", 0), label.get("w", 0), label.get("h", 0)
                                 
-                                # Draw rectangle with color based on state
                                 color = (0, 0, 255)  # Red (BGR)
                                 if state == "green":
                                     color = (0, 255, 0)  # Green
                                 elif state == "yellow":
                                     color = (0, 255, 255)  # Yellow
                                 
-                                # Draw bounding box and padding area
                                 x0 = max(int(x - PADDING), 0)
                                 y0 = max(int(y - PADDING), 0)
                                 x1 = min(int(x + w + PADDING), np_img.shape[1])
                                 y1 = min(int(y + h + PADDING), np_img.shape[0])
                                 
-                                # Draw outer padded rectangle
                                 cv.rectangle(np_img, (x0, y0), (x1, y1), color, 1)
                                 
-                                # Draw inner exact rectangle
                                 cv.rectangle(np_img, (int(x), int(y)), (int(x+w), int(y+h)), (255, 255, 255), 1)
                                 
-                                # Add text with state
                                 cv.putText(np_img, state, (int(x), int(y-5)), 
                                           cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
                     
-                    # Save the visualization
                     base = os.path.splitext(os.path.basename(rel_path))[0]
                     out_path = os.path.join(debug_dir, f"{base}_annotated.jpg")
                     cv.imwrite(out_path, np_img)
@@ -560,8 +547,7 @@ def visualize_sample_annotations(dataset_type, num_samples=5):
             print(f"Error processing DTLD annotations: {e}")
             
     elif dataset_type.lower() == 'lisa':
-        # Visualize LISA dataset
-        for seq in sequences[:min(len(sequences), 2)]:  # Check first 2 sequences
+        for seq in sequences[:min(len(sequences), 2)]:
             seq_dir = os.path.join(LISA_DIR, seq)
             if not os.path.exists(seq_dir):
                 continue
@@ -580,12 +566,10 @@ def visualize_sample_annotations(dataset_type, num_samples=5):
             if not annotation_file:
                 continue
                 
-            # Find potential image sources
             frames_dir = os.path.join(seq_dir, "frames")
             if not os.path.exists(frames_dir):
                 frames_dir = seq_dir
             
-            # Find recursive directories that might contain images
             clip_dirs = []
             if os.path.exists(seq_dir):
                 for item in os.listdir(seq_dir):
@@ -596,26 +580,23 @@ def visualize_sample_annotations(dataset_type, num_samples=5):
                         if os.path.exists(clip_frames):
                             clip_dirs.append(clip_frames)
             
-            # Process annotation file
             try:
                 with open(annotation_file, 'r') as f:
                     reader = csv.reader(f, delimiter=';')
-                    next(reader)  # Skip header
+                    next(reader)
                     
                     samples_count = 0
                     for row in reader:
                         if samples_count >= num_samples:
                             break
                             
-                        if len(row) >= 6:  # Has bounding box
-                            image_path = row[0]  # Filename
+                        if len(row) >= 6:
+                            image_path = row[0]
                             image_name = os.path.basename(image_path)
-                            light_state = row[1]  # Traffic light state
+                            light_state = row[1]
                             
-                            # Find image in possible directories
                             img_src_path = os.path.join(frames_dir, image_name)
                             if not os.path.exists(img_src_path):
-                                # Try alternatives
                                 for dir_path in [seq_dir] + clip_dirs:
                                     alt_path = os.path.join(dir_path, image_name)
                                     if os.path.exists(alt_path):
@@ -624,7 +605,6 @@ def visualize_sample_annotations(dataset_type, num_samples=5):
                             
                             if os.path.exists(img_src_path):
                                 try:
-                                    # Load image
                                     img = cv.imread(img_src_path)
                                     if img is None:
                                         continue
@@ -680,7 +660,7 @@ def visualize_sample_annotations(dataset_type, num_samples=5):
     print(f"Visualization complete. Check the {debug_dir} directory for results.")
 
 def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True):
-    class_names = ['green', 'red', 'yellow', 'off']
+    class_names = ['green', 'red', 'yellow']
     
     for batch_images, batch_labels in dataset.take(num_batches):
         predictions = model.predict(batch_images, verbose=0)
@@ -717,211 +697,118 @@ def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True)
         plt.tight_layout()
         plt.show()
 
-
-def hsv_feature_extraction(image):
-    # Convert to HSV colorspace
+def extract_brightness_features(image):
+    crop_left_right = 12
+    crop_top_bottom = 3
+    
     hsv = tf.image.rgb_to_hsv(image)
+    v_channel = hsv[:, :, :, 2]
     
-    # Extract all channels
-    h_channel = hsv[:, :, :, 0]  # Hue
-    s_channel = hsv[:, :, :, 1]  # Saturation
-    v_channel = hsv[:, :, :, 2]  # Value (brightness)
-    
-    # Get image dimensions
-    batch_size = tf.shape(image)[0]
     height = tf.shape(image)[1]
-    width = tf.shape(image)[2]
     
-    # Divide image into three vertical regions (top, middle, bottom)
-    h_third = height // 3
+    cropped_v = v_channel[:, crop_top_bottom:height-crop_top_bottom, crop_left_right:tf.shape(image)[2]-crop_left_right]
     
-    # Extract regions for all channels
-    # Brightness (Value)
-    top_v = v_channel[:, :h_third, :] 
-    middle_v = v_channel[:, h_third:2*h_third, :]
-    bottom_v = v_channel[:, 2*h_third:, :]
+    row_brightness = tf.reduce_mean(cropped_v, axis=2)
     
-    # Saturation
-    top_s = s_channel[:, :h_third, :] 
-    middle_s = s_channel[:, h_third:2*h_third, :]
-    bottom_s = s_channel[:, 2*h_third:, :]
-    
-    # Hue
-    top_h = h_channel[:, :h_third, :] 
-    middle_h = h_channel[:, h_third:2*h_third, :]
-    bottom_h = h_channel[:, 2*h_third:, :]
-    
-    # --- BRIGHTNESS FEATURES ---
-    # Keep all existing brightness features
-    top_brightness = tf.reduce_mean(top_v, axis=[1, 2])
-    middle_brightness = tf.reduce_mean(middle_v, axis=[1, 2])
-    bottom_brightness = tf.reduce_mean(bottom_v, axis=[1, 2])
-    
-    overall_brightness = tf.reduce_mean(v_channel, axis=[1, 2])
-    
-    epsilon = 1e-7
-    rel_top_brightness = top_brightness / (overall_brightness + epsilon)
-    rel_middle_brightness = middle_brightness / (overall_brightness + epsilon)
-    rel_bottom_brightness = bottom_brightness / (overall_brightness + epsilon)
-    
-    max_top_brightness = tf.reduce_max(top_v, axis=[1, 2])
-    max_middle_brightness = tf.reduce_max(middle_v, axis=[1, 2])
-    max_bottom_brightness = tf.reduce_max(bottom_v, axis=[1, 2])
-    
-    var_top_brightness = tf.math.reduce_variance(tf.reshape(top_v, [batch_size, -1]), axis=1)
-    var_middle_brightness = tf.math.reduce_variance(tf.reshape(middle_v, [batch_size, -1]), axis=1)
-    var_bottom_brightness = tf.math.reduce_variance(tf.reshape(bottom_v, [batch_size, -1]), axis=1)
-    
-    # --- SATURATION FEATURES ---
-    # Average saturation per region
-    top_saturation = tf.reduce_mean(top_s, axis=[1, 2])
-    middle_saturation = tf.reduce_mean(middle_s, axis=[1, 2])
-    bottom_saturation = tf.reduce_mean(bottom_s, axis=[1, 2])
-    
-    # Maximum saturation (helps detect vivid colors)
-    max_top_saturation = tf.reduce_max(top_s, axis=[1, 2])
-    max_middle_saturation = tf.reduce_max(middle_s, axis=[1, 2])
-    max_bottom_saturation = tf.reduce_max(bottom_s, axis=[1, 2])
-    
-    # --- HUE FEATURES ---
-    # Calculate histograms of hue values in each region
-    # Traffic light colors have specific hue ranges:
-    # Red: ~0.0 or ~1.0
-    # Yellow: ~0.1-0.2
-    # Green: ~0.3-0.4
-    
-    red_mask1 = tf.logical_and(
-        tf.greater_equal(h_channel, 0.0),
-        tf.less_equal(h_channel, 10.0/180.0)
-    )
-    red_mask2 = tf.logical_and(
-        tf.greater_equal(h_channel, 170.0/180.0),
-        tf.less_equal(h_channel, 1.0)
-    )
-    
-    # Also require minimum saturation and value
-    red_mask1 = tf.logical_and(
-        red_mask1, 
-        tf.logical_and(
-            tf.greater_equal(s_channel, 100.0/255.0),
-            tf.greater_equal(v_channel, 100.0/255.0)
-        )
-    )
-    red_mask2 = tf.logical_and(
-        red_mask2, 
-        tf.logical_and(
-            tf.greater_equal(s_channel, 100.0/255.0),
-            tf.greater_equal(v_channel, 100.0/255.0)
-        )
-    )
-    
-    red_mask = tf.logical_or(red_mask1, red_mask2)
-    
-    # Yellow mask (20-30 in OpenCV scale)
-    yellow_mask = tf.logical_and(
-        tf.logical_and(
-            tf.greater_equal(h_channel, 20.0/180.0),
-            tf.less_equal(h_channel, 30.0/180.0)
-        ),
-        tf.logical_and(
-            tf.greater_equal(s_channel, 100.0/255.0),
-            tf.greater_equal(v_channel, 100.0/255.0)
-        )
-    )
-    
-    # Green mask (40-80 in OpenCV scale)
-    green_mask = tf.logical_and(
-        tf.logical_and(
-            tf.greater_equal(h_channel, 40.0/180.0),
-            tf.less_equal(h_channel, 80.0/180.0)
-        ),
-        tf.logical_and(
-            tf.greater_equal(s_channel, 100.0/255.0),
-            tf.greater_equal(v_channel, 100.0/255.0)
-        )
-    )
-    
-    # Convert boolean masks to float
-    red_mask = tf.cast(red_mask, tf.float32)
-    yellow_mask = tf.cast(yellow_mask, tf.float32)
-    green_mask = tf.cast(green_mask, tf.float32)
-    
-    # Count pixels with specific hues in each region
-    top_red_ratio = tf.reduce_mean(red_mask[:, :h_third, :], axis=[1, 2])
-    middle_red_ratio = tf.reduce_mean(red_mask[:, h_third:2*h_third, :], axis=[1, 2])
-    bottom_red_ratio = tf.reduce_mean(red_mask[:, 2*h_third:, :], axis=[1, 2])
-    
-    top_yellow_ratio = tf.reduce_mean(yellow_mask[:, :h_third, :], axis=[1, 2])
-    middle_yellow_ratio = tf.reduce_mean(yellow_mask[:, h_third:2*h_third, :], axis=[1, 2])
-    bottom_yellow_ratio = tf.reduce_mean(yellow_mask[:, 2*h_third:, :], axis=[1, 2])
-    
-    top_green_ratio = tf.reduce_mean(green_mask[:, :h_third, :], axis=[1, 2])
-    middle_green_ratio = tf.reduce_mean(green_mask[:, h_third:2*h_third, :], axis=[1, 2])
-    bottom_green_ratio = tf.reduce_mean(green_mask[:, 2*h_third:, :], axis=[1, 2])
-    
-    # Stack all features
-    hsv_features = tf.stack([
-        # Original brightness features
-        top_brightness, middle_brightness, bottom_brightness,
-        rel_top_brightness, rel_middle_brightness, rel_bottom_brightness,
-        max_top_brightness, max_middle_brightness, max_bottom_brightness,
-        var_top_brightness, var_middle_brightness, var_bottom_brightness,
-        overall_brightness,
-        
-        # Saturation features
-        top_saturation, middle_saturation, bottom_saturation,
-        max_top_saturation, max_middle_saturation, max_bottom_saturation,
-        
-        # Hue distribution features
-        top_red_ratio, middle_red_ratio, bottom_red_ratio,
-        top_yellow_ratio, middle_yellow_ratio, bottom_yellow_ratio,
-        top_green_ratio, middle_green_ratio, bottom_green_ratio
-    ], axis=1)
-    
-    return hsv_features
+    return row_brightness
 
-#Only for testing images/predictions
-def process_image(image_path):
-    image = tf.keras.preprocessing.image.load_img(image_path)
-    image = tf.keras.preprocessing.image.img_to_array(image)
-    image = image / 255.0  # Normalize to [0, 1]
-    return image
+def get_brightness_vector(image):
+    hsv = cv.cvtColor(image, cv.COLOR_RGB2HSV)
+    
+    height, width, _ = image.shape
+    cropped_v = hsv[CROP_TOP_BOTTOM:height-CROP_TOP_BOTTOM, 
+                    CROP_LEFT_RIGHT:width-CROP_LEFT_RIGHT, 2]
+    
+    row_brightness = np.mean(cropped_v, axis=1)
+    
+    return row_brightness
 
-data_augmentation = tf.keras.Sequential([
-    tf.keras.layers.RandomFlip("horizontal"),
-    tf.keras.layers.RandomZoom(0.15),
-    tf.keras.layers.RandomRotation(0.25),
-    tf.keras.layers.RandomTranslation(0.1, 0.1),
-    #Color Jitter
-    tf.keras.layers.Lambda(lambda x: tf.image.random_brightness(x, max_delta=0.2)),
-    tf.keras.layers.Lambda(lambda x: tf.image.random_contrast(x, lower=0.8, upper=1.2)),
-    tf.keras.layers.Lambda(lambda x: tf.image.random_saturation(x, lower=0.8, upper=1.2)),
-    tf.keras.layers.Lambda(lambda x: tf.image.random_hue(x, max_delta=0.05))
-])
+def analyze_brightness_pattern(image, true_label=None):
+    brightness = get_brightness_vector(image)
+    
+    section_size = len(brightness) // 3
+    
+    top_section = np.sum(brightness[:section_size])
+    middle_section = np.sum(brightness[section_size:2*section_size])
+    bottom_section = np.sum(brightness[2*section_size:])
+    
+    sections = [top_section, middle_section, bottom_section]
+    brightest_section = np.argmax(sections)
+    
+    predicted_state = STATES[brightest_section]
+    
+    total_brightness = sum(sections)
+    if total_brightness > 0:
+        confidences = [s/total_brightness for s in sections]
+    else:
+        confidences = [0.33, 0.33, 0.33]
+    
+    result = {
+        "predicted_state": predicted_state,
+        "confidence": confidences[brightest_section],
+        "section_brightness": {
+            "red": sections[0],
+            "yellow": sections[1],
+            "green": sections[2]
+        },
+        "normalized_brightness": {
+            "red": confidences[0],
+            "yellow": confidences[1],
+            "green": confidences[2]
+        }
+    }
+    
+    if true_label is not None:
+        result["true_state"] = true_label
+        result["is_correct"] = predicted_state == true_label
+    
+    return result
+
+def build_traffic_light_model():
+    inputs = Input(shape=INPUT_SHAPE, name="image_input")
+
+    brightness = Lambda(extract_brightness_features, name="brightness_vec")(inputs)
+    b = Flatten(name="flatten_brightness")(brightness)
+    b = Dense(32, activation="relu", name="dense_brightness")(b)
+    b = Dropout(0.3, name="drop_brightness")(b)
+
+    x = Conv2D(32, 3, padding="same", activation="relu", name="conv1")(inputs)
+    x = BatchNormalization(name="bn1")(x)
+    x = MaxPooling2D(2, name="pool1")(x)
+
+    x = Conv2D(64, 3, padding="same", activation="relu", name="conv2")(x)
+    x = BatchNormalization(name="bn2")(x)
+    x = MaxPooling2D(2, name="pool2")(x)
+
+    x = Conv2D(128, 3, padding="same", activation="relu", name="conv3")(x)
+    x = BatchNormalization(name="bn3")(x)
+    x = MaxPooling2D(2, name="pool3")(x)
+
+    x = Flatten(name="flatten_cnn")(x)
+    x = Dense(128, activation="relu", name="dense_cnn")(x)
+    x = Dropout(0.5, name="drop_cnn")(x)
+
+    combined = Concatenate(name="concat")([x, b])
+    outputs  = Dense(len(STATES), activation="softmax", name="class_output")(combined)
+
+    model = Model(inputs, outputs, name="traffic_light_classifier")
+    return model
 
 if not os.path.exists("debug_visualizations"):
-    print("Generating debug visualizations...")
-    visualize_sample_annotations('dtld', num_samples=10)
-    visualize_sample_annotations('lisa', num_samples=10)
-    print("Debug visualizations complete.")
-else:
-    print("Debug visualizations already exist.")
-
+    os.makedirs(os.path.join("debug_visualizations", "brightness"), exist_ok=True)
+    
 if not os.path.exists(os.path.join(CROP_DS_LISA, "green")):
-    print("LISA Dataset hasn't been processed yet. Processing now...")
     process_lisa_dataset(force_overwrite=True)
 else:
     print("LISA Dataset is already processed. Skipping dataset processing.")
 
 if not os.path.exists(os.path.join(CROP_DS_DTLD, "green")):
-    print("DTLD Dataset hasn't been processed yet. Processing now...")
     process_dtld_dataset()
 else:
     print("DTLD Dataset is already Processed. Skipping dataset processing.")
 
 if (os.path.exists(os.path.join(CROP_DS_DTLD, "green")) and 
     not os.path.exists(os.path.join(MERGED_DS, "green"))):
-    print("Creating merged dataset from processed data...")
     create_merged_dataset()
 
 if not os.path.exists(MERGED_DS) or not os.path.exists(os.path.join(MERGED_DS, "green")):
@@ -943,7 +830,6 @@ print(full_dataset.class_names)
 dataset_size = sum(1 for _ in full_dataset)
 print(f"Total images: {dataset_size}")
 
-
 train_size = int(0.8 * dataset_size)
 val_size = int(0.1 * dataset_size)
 test_size = dataset_size - train_size - val_size
@@ -957,7 +843,6 @@ test_ds = full_dataset.skip(train_size + val_size)
 train_ds = train_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 val_ds = val_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 test_ds = test_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
-
 
 print(f"Train dataset size: {len(train_ds)} batches")
 print(f"Validation dataset size: {len(val_ds)} batches")
@@ -975,58 +860,15 @@ weights = class_weight.compute_class_weight(
 class_weights = {i: w for i, w in enumerate(weights)}
 print("Class weights:", class_weights)
 
-
-
-def build_traffic_light_model():
-    inputs = Input(shape=INPUT_SHAPE)
-    augmented = data_augmentation(inputs)
-
-    base_model = EfficientNetB0(include_top=False, input_tensor=augmented, weights='imagenet')
-    base_model.trainable = False  # freeze during initial training
-
-    x = GlobalAveragePooling2D()(base_model.output)
-    cnn_features = Dense(128, activation='relu')(x)
-    cnn_features = Dropout(0.5)(cnn_features)
-
-    hsv_features = Lambda(hsv_feature_extraction)(augmented)
-    hsv_branch = Dense(32, activation='relu')(hsv_features)
-
-    combined = Concatenate()([cnn_features, hsv_branch])
-    outputs = Dense(len(STATES), activation='softmax', dtype='float32')(combined)
-
-    model = Model(inputs=inputs, outputs=outputs)
-    return model
-
-
 model = build_traffic_light_model()
-
 print(model.summary())
 
-if os.path.exists("traffic_light_classification.h5"):
-    model.load_weights("traffic_light_classification_weights.h5")
-    print("Model loaded successfully.")
-    visualize_predictions(model, val_ds)
 
-
-elif os.path.exists("traffic_light_classification_checkpoint.h5"):
+if os.path.exists("traffic_light_classification_checkpoint.h5"):
     model.load_weights("traffic_light_classification_checkpoint.h5")
     print("Model Checkpoint loaded successfully.")
     visualize_predictions(model, val_ds)
 else:
-
-    early_stopping = EarlyStopping(
-    'val_accuracy', 
-    patience=4, 
-    restore_best_weights=True
-    )
-
-    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-    monitor='val_loss',
-    factor=0.5,
-    patience=2,
-    min_lr=1e-6,
-    verbose=1
-    )
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
         "traffic_light_classification_checkpoint.h5",
@@ -1049,7 +891,7 @@ else:
         epochs=EPOCHS,
         verbose=1,
         class_weight=class_weights,
-        callbacks=[checkpoint, early_stopping, reduce_lr]
+        callbacks=[checkpoint]
     )
 
     model.save_weights("traffic_light_classification_weights.h5")
@@ -1072,3 +914,6 @@ else:
     plt.ylabel('Accuracy')
     plt.legend()
     plt.show()
+
+    model.save("traffic_light_classification_model.h5", save_format='h5')
+    print("Complete model (architecture + weights) saved successfully.")
