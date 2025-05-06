@@ -171,7 +171,6 @@ def process_dtld_dataset():
     except Exception as e:
         print(f"Error processing annotation file: {e}")
     
-    # Print final statistics
     print("\n--- Processing Complete ---")
     print(f"Processed {processed_images} images")
     print("Cropped traffic lights by state:")
