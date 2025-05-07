@@ -698,8 +698,8 @@ def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True)
         plt.show()
 
 def extract_brightness_features(image):
-    crop_left_right = 12
-    crop_top_bottom = 3
+    crop_left_right = 20
+    crop_top_bottom = 10
     
     hsv = tf.image.rgb_to_hsv(image)
     v_channel = hsv[:, :, :, 2]
