@@ -25,11 +25,11 @@ TARGET_DIR = "yolo_dataset"
 TRAIN_RATIO = 0.9
 CLASS_ID = 0
 EPOCHS = 80
-BATCH_SIZE = 64
+BATCH_SIZE = 4
 GRID_SIZE = 7
 BOXES_PER_CELL = 2
-IMG_SIZE = (640,640)
-YOLO_MODEL_SIZE = "l"
+IMG_SIZE = (416,416)
+YOLO_MODEL_SIZE = "yolov8m.pt"
 DTLD_DIR = "dtld_dataset"
 LISA_DIR = "lisa_dataset"
 STATES = ["red", "yellow", "green"]
@@ -582,7 +582,7 @@ def load_dataset(image_dir, label_dir, image_size=(IMG_SIZE), grid_size=7, boxes
     print(f"Found {len(img_paths)} images in {image_dir}")
     dataset = tf.data.Dataset.from_tensor_slices(img_paths)
     dataset = dataset.map(wrapper)
-    dataset = dataset.shuffle(500).batch(32).prefetch(tf.data.AUTOTUNE)
+    dataset = dataset.shuffle(500).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
     return dataset
 
 def detect_traffic_lights(model, image_path):
@@ -791,7 +791,7 @@ if __name__ == '__main__':
         if len(files) > 0:
             print(f"Sample files: {files[:5]}")
 
-    model = YOLO("yolov8l.pt")
+    model = YOLO(YOLO_MODEL_SIZE)
 
     dataset_yaml_path = os.path.abspath(os.path.join(TARGET_DIR, "dataset.yaml"))
 
@@ -816,7 +816,9 @@ if __name__ == '__main__':
         name='yolo_traffic_light_detector',
         patience=10,
         save=True,
-        device=device
+        device=device,
+        cache=False,
+        augment = False,
     )
 
 

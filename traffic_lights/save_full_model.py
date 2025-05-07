@@ -1,228 +1,92 @@
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, GlobalAveragePooling2D, Dense, Dropout, Concatenate, Lambda
-from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.layers import Input, Dense, Dropout, MaxPooling2D, Lambda, Conv2D, BatchNormalization, Flatten, Concatenate
 import os
 
 IMG_SIZE = (64,64)
 INPUT_SHAPE = (64, 64, 3)
-STATES = ["green", "red", "yellow", "off"]
+STATES = ["red", "yellow", "green"]
+CROP_LEFT_RIGHT = 12
+CROP_TOP_BOTTOM = 3
 
 data_augmentation = tf.keras.Sequential([
     tf.keras.layers.RandomFlip("horizontal"),
     tf.keras.layers.RandomZoom(0.15),
     tf.keras.layers.RandomRotation(0.25),
     tf.keras.layers.RandomTranslation(0.1, 0.1),
-    #Color Jitter
     tf.keras.layers.Lambda(lambda x: tf.image.random_brightness(x, max_delta=0.2)),
     tf.keras.layers.Lambda(lambda x: tf.image.random_contrast(x, lower=0.8, upper=1.2)),
     tf.keras.layers.Lambda(lambda x: tf.image.random_saturation(x, lower=0.8, upper=1.2)),
     tf.keras.layers.Lambda(lambda x: tf.image.random_hue(x, max_delta=0.05))
 ])
 
-def hsv_feature_extraction(image):
-    # Convert to HSV colorspace
+def extract_brightness_features(image):
     hsv = tf.image.rgb_to_hsv(image)
-    
-    # Extract all channels
-    h_channel = hsv[:, :, :, 0]  # Hue
-    s_channel = hsv[:, :, :, 1]  # Saturation
-    v_channel = hsv[:, :, :, 2]  # Value (brightness)
-    
-    # Get image dimensions
-    batch_size = tf.shape(image)[0]
-    height = tf.shape(image)[1]
-    width = tf.shape(image)[2]
-    
-    # Divide image into three vertical regions (top, middle, bottom)
-    h_third = height // 3
-    
-    # Extract regions for all channels
-    # Brightness (Value)
-    top_v = v_channel[:, :h_third, :] 
-    middle_v = v_channel[:, h_third:2*h_third, :]
-    bottom_v = v_channel[:, 2*h_third:, :]
-    
-    # Saturation
-    top_s = s_channel[:, :h_third, :] 
-    middle_s = s_channel[:, h_third:2*h_third, :]
-    bottom_s = s_channel[:, 2*h_third:, :]
-    
-    # Hue
-    top_h = h_channel[:, :h_third, :] 
-    middle_h = h_channel[:, h_third:2*h_third, :]
-    bottom_h = h_channel[:, 2*h_third:, :]
-    
-    # --- BRIGHTNESS FEATURES ---
-    # Keep all existing brightness features
-    top_brightness = tf.reduce_mean(top_v, axis=[1, 2])
-    middle_brightness = tf.reduce_mean(middle_v, axis=[1, 2])
-    bottom_brightness = tf.reduce_mean(bottom_v, axis=[1, 2])
-    
-    overall_brightness = tf.reduce_mean(v_channel, axis=[1, 2])
-    
-    epsilon = 1e-7
-    rel_top_brightness = top_brightness / (overall_brightness + epsilon)
-    rel_middle_brightness = middle_brightness / (overall_brightness + epsilon)
-    rel_bottom_brightness = bottom_brightness / (overall_brightness + epsilon)
-    
-    max_top_brightness = tf.reduce_max(top_v, axis=[1, 2])
-    max_middle_brightness = tf.reduce_max(middle_v, axis=[1, 2])
-    max_bottom_brightness = tf.reduce_max(bottom_v, axis=[1, 2])
-    
-    var_top_brightness = tf.math.reduce_variance(tf.reshape(top_v, [batch_size, -1]), axis=1)
-    var_middle_brightness = tf.math.reduce_variance(tf.reshape(middle_v, [batch_size, -1]), axis=1)
-    var_bottom_brightness = tf.math.reduce_variance(tf.reshape(bottom_v, [batch_size, -1]), axis=1)
-    
-    # --- SATURATION FEATURES ---
-    # Average saturation per region
-    top_saturation = tf.reduce_mean(top_s, axis=[1, 2])
-    middle_saturation = tf.reduce_mean(middle_s, axis=[1, 2])
-    bottom_saturation = tf.reduce_mean(bottom_s, axis=[1, 2])
-    
-    # Maximum saturation (helps detect vivid colors)
-    max_top_saturation = tf.reduce_max(top_s, axis=[1, 2])
-    max_middle_saturation = tf.reduce_max(middle_s, axis=[1, 2])
-    max_bottom_saturation = tf.reduce_max(bottom_s, axis=[1, 2])
-    
-    # --- HUE FEATURES ---
-    # Calculate histograms of hue values in each region
-    # Traffic light colors have specific hue ranges:
-    # Red: ~0.0 or ~1.0
-    # Yellow: ~0.1-0.2
-    # Green: ~0.3-0.4
-    
-    red_mask1 = tf.logical_and(
-        tf.greater_equal(h_channel, 0.0),
-        tf.less_equal(h_channel, 10.0/180.0)
-    )
-    red_mask2 = tf.logical_and(
-        tf.greater_equal(h_channel, 170.0/180.0),
-        tf.less_equal(h_channel, 1.0)
-    )
-    
-    # Also require minimum saturation and value
-    red_mask1 = tf.logical_and(
-        red_mask1, 
-        tf.logical_and(
-            tf.greater_equal(s_channel, 100.0/255.0),
-            tf.greater_equal(v_channel, 100.0/255.0)
-        )
-    )
-    red_mask2 = tf.logical_and(
-        red_mask2, 
-        tf.logical_and(
-            tf.greater_equal(s_channel, 100.0/255.0),
-            tf.greater_equal(v_channel, 100.0/255.0)
-        )
-    )
-    
-    red_mask = tf.logical_or(red_mask1, red_mask2)
-    
-    # Yellow mask (20-30 in OpenCV scale)
-    yellow_mask = tf.logical_and(
-        tf.logical_and(
-            tf.greater_equal(h_channel, 20.0/180.0),
-            tf.less_equal(h_channel, 30.0/180.0)
-        ),
-        tf.logical_and(
-            tf.greater_equal(s_channel, 100.0/255.0),
-            tf.greater_equal(v_channel, 100.0/255.0)
-        )
-    )
-    
-    # Green mask (40-80 in OpenCV scale)
-    green_mask = tf.logical_and(
-        tf.logical_and(
-            tf.greater_equal(h_channel, 40.0/180.0),
-            tf.less_equal(h_channel, 80.0/180.0)
-        ),
-        tf.logical_and(
-            tf.greater_equal(s_channel, 100.0/255.0),
-            tf.greater_equal(v_channel, 100.0/255.0)
-        )
-    )
-    
-    # Convert boolean masks to float
-    red_mask = tf.cast(red_mask, tf.float32)
-    yellow_mask = tf.cast(yellow_mask, tf.float32)
-    green_mask = tf.cast(green_mask, tf.float32)
-    
-    # Count pixels with specific hues in each region
-    top_red_ratio = tf.reduce_mean(red_mask[:, :h_third, :], axis=[1, 2])
-    middle_red_ratio = tf.reduce_mean(red_mask[:, h_third:2*h_third, :], axis=[1, 2])
-    bottom_red_ratio = tf.reduce_mean(red_mask[:, 2*h_third:, :], axis=[1, 2])
-    
-    top_yellow_ratio = tf.reduce_mean(yellow_mask[:, :h_third, :], axis=[1, 2])
-    middle_yellow_ratio = tf.reduce_mean(yellow_mask[:, h_third:2*h_third, :], axis=[1, 2])
-    bottom_yellow_ratio = tf.reduce_mean(yellow_mask[:, 2*h_third:, :], axis=[1, 2])
-    
-    top_green_ratio = tf.reduce_mean(green_mask[:, :h_third, :], axis=[1, 2])
-    middle_green_ratio = tf.reduce_mean(green_mask[:, h_third:2*h_third, :], axis=[1, 2])
-    bottom_green_ratio = tf.reduce_mean(green_mask[:, 2*h_third:, :], axis=[1, 2])
-    
-    # Stack all features
-    hsv_features = tf.stack([
-        # Original brightness features
-        top_brightness, middle_brightness, bottom_brightness,
-        rel_top_brightness, rel_middle_brightness, rel_bottom_brightness,
-        max_top_brightness, max_middle_brightness, max_bottom_brightness,
-        var_top_brightness, var_middle_brightness, var_bottom_brightness,
-        overall_brightness,
-        
-        # Saturation features
-        top_saturation, middle_saturation, bottom_saturation,
-        max_top_saturation, max_middle_saturation, max_bottom_saturation,
-        
-        # Hue distribution features
-        top_red_ratio, middle_red_ratio, bottom_red_ratio,
-        top_yellow_ratio, middle_yellow_ratio, bottom_yellow_ratio,
-        top_green_ratio, middle_green_ratio, bottom_green_ratio
-    ], axis=1)
-
-    hsv_features = tf.ensure_shape(hsv_features, (None, 28))
-    
-    return hsv_features
+    v_channel = hsv[:, :, :, 2]
+    cropped_v = v_channel[:, CROP_TOP_BOTTOM:tf.shape(image)[1]-CROP_TOP_BOTTOM, 
+                         CROP_LEFT_RIGHT:tf.shape(image)[2]-CROP_LEFT_RIGHT]
+    row_brightness = tf.reduce_mean(cropped_v, axis=2)
+    return row_brightness
 
 def build_traffic_light_model():
-    inputs = Input(shape=INPUT_SHAPE)
-    augmented = data_augmentation(inputs)
+    inputs = Input(shape=INPUT_SHAPE, name="image_input")
 
-    base_model = EfficientNetB0(include_top=False, input_tensor=augmented, weights='imagenet')
-    base_model.trainable = False  # freeze during initial training
+    brightness = Lambda(extract_brightness_features, name="brightness_vec")(inputs)
+    b = Flatten(name="flatten_brightness")(brightness)
+    b = Dense(32, activation="relu", name="dense_brightness")(b)
+    b = Dropout(0.3, name="drop_brightness")(b)
 
-    x = GlobalAveragePooling2D()(base_model.output)
-    cnn_features = Dense(128, activation='relu')(x)
-    cnn_features = Dropout(0.5)(cnn_features)
+    x = Conv2D(32, 3, padding="same", activation="relu", name="conv1")(inputs)
+    x = BatchNormalization(name="bn1")(x)
+    x = MaxPooling2D(2, name="pool1")(x)
 
-    hsv_features = Lambda(hsv_feature_extraction)(augmented)
-    hsv_branch = Dense(32, activation='relu')(hsv_features)
+    x = Conv2D(64, 3, padding="same", activation="relu", name="conv2")(x)
+    x = BatchNormalization(name="bn2")(x)
+    x = MaxPooling2D(2, name="pool2")(x)
 
-    combined = Concatenate()([cnn_features, hsv_branch])
-    outputs = Dense(len(STATES), activation='softmax', dtype='float32')(combined)
+    x = Conv2D(128, 3, padding="same", activation="relu", name="conv3")(x)
+    x = BatchNormalization(name="bn3")(x)
+    x = MaxPooling2D(2, name="pool3")(x)
 
-    model = Model(inputs=inputs, outputs=outputs)
+    x = Flatten(name="flatten_cnn")(x)
+    x = Dense(128, activation="relu", name="dense_cnn")(x)
+    x = Dropout(0.5, name="drop_cnn")(x)
+
+    combined = Concatenate(name="concat")([x, b])
+    outputs = Dense(len(STATES), activation="softmax", name="class_output")(combined)
+
+    model = Model(inputs, outputs, name="traffic_light_classifier")
     return model
 
 def build_inference_model():
-    inputs = Input(shape=INPUT_SHAPE)
-    
-    base_model = EfficientNetB0(include_top=False, input_tensor=inputs, weights='imagenet')
-    base_model.trainable = False
-    
-    x = GlobalAveragePooling2D()(base_model.output)
-    cnn_features = Dense(128, activation='relu')(x)
-    cnn_features = Dropout(0.5)(cnn_features)
-    
-    hsv_features = Lambda(hsv_feature_extraction)(inputs)
-    hsv_branch = Dense(32, activation='relu')(hsv_features)
-    
-    combined = Concatenate()([cnn_features, hsv_branch])
-    outputs = Dense(len(STATES), activation='softmax', dtype='float32')(combined)
-    
-    return Model(inputs=inputs, outputs=outputs)
+    inputs = Input(shape=INPUT_SHAPE, name="image_input")
 
+    brightness = Lambda(extract_brightness_features, name="brightness_vec")(inputs)
+    b = Flatten(name="flatten_brightness")(brightness)
+    b = Dense(32, activation="relu", name="dense_brightness")(b)
+    b = Dropout(0.3, name="drop_brightness")(b)
+
+    x = Conv2D(32, 3, padding="same", activation="relu", name="conv1")(inputs)
+    x = BatchNormalization(name="bn1")(x)
+    x = MaxPooling2D(2, name="pool1")(x)
+
+    x = Conv2D(64, 3, padding="same", activation="relu", name="conv2")(x)
+    x = BatchNormalization(name="bn2")(x)
+    x = MaxPooling2D(2, name="pool2")(x)
+
+    x = Conv2D(128, 3, padding="same", activation="relu", name="conv3")(x)
+    x = BatchNormalization(name="bn3")(x)
+    x = MaxPooling2D(2, name="pool3")(x)
+
+    x = Flatten(name="flatten_cnn")(x)
+    x = Dense(128, activation="relu", name="dense_cnn")(x)
+    x = Dropout(0.5, name="drop_cnn")(x)
+
+    combined = Concatenate(name="concat")([x, b])
+    outputs = Dense(len(STATES), activation="softmax", name="class_output")(combined)
+
+    return Model(inputs, outputs, name="traffic_light_classifier")
 
 print("Building training model...")
 train_model = build_traffic_light_model()
@@ -251,7 +115,58 @@ for i, layer in enumerate(inference_model.layers):
 
 saved_model_path = "traffic_light_classification_savedmodel"
 print(f"Saving model to {saved_model_path}...")
-tf.saved_model.save(inference_model, saved_model_path)
+
+@tf.function(input_signature=[tf.TensorSpec(shape=(None, 64, 64, 3), dtype=tf.float32)])
+def serving_function(input_imgs):
+    # Manually extract brightness features
+    hsv = tf.image.rgb_to_hsv(input_imgs)
+    v_channel = hsv[:, :, :, 2]
+    cropped_v = v_channel[:, CROP_TOP_BOTTOM:tf.shape(input_imgs)[1]-CROP_TOP_BOTTOM, 
+                         CROP_LEFT_RIGHT:tf.shape(input_imgs)[2]-CROP_LEFT_RIGHT]
+    row_brightness = tf.reduce_mean(cropped_v, axis=2)
+    
+    # Print shape for debugging
+    # tf.print("row_brightness shape:", tf.shape(row_brightness))
+    
+    # Fix the reshape - row_brightness has shape [batch_size, height]
+    b = tf.reshape(row_brightness, [tf.shape(input_imgs)[0], -1])
+    
+    # Get brightness branch weights
+    brightness_dense = inference_model.get_layer("dense_brightness")
+    brightness_dropout = inference_model.get_layer("drop_brightness")
+    
+    # Process brightness manually
+    b = brightness_dense(b)
+    b = brightness_dropout(b, training=False)
+    
+    # Get CNN branch outputs by running partial model
+    x = inference_model.get_layer("conv1")(input_imgs)
+    x = inference_model.get_layer("bn1")(x)
+    x = inference_model.get_layer("pool1")(x)
+    x = inference_model.get_layer("conv2")(x)
+    x = inference_model.get_layer("bn2")(x)
+    x = inference_model.get_layer("pool2")(x)
+    x = inference_model.get_layer("conv3")(x)
+    x = inference_model.get_layer("bn3")(x)
+    x = inference_model.get_layer("pool3")(x)
+    x = inference_model.get_layer("flatten_cnn")(x)
+    x = inference_model.get_layer("dense_cnn")(x)
+    x = inference_model.get_layer("drop_cnn")(x, training=False)
+    
+    # Manual concatenation
+    combined = tf.concat([x, b], axis=1)
+    
+    # Final classification
+    outputs = inference_model.get_layer("class_output")(combined)
+    
+    return {"predictions": outputs}
+
+tf.saved_model.save(
+    inference_model, 
+    "traffic_light_classification_savedmodel",
+    signatures={"serving_default": serving_function}
+)
+
 print("Model saved successfully in SavedModel format")
 
 try:

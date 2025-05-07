@@ -203,7 +203,7 @@ def test_with_random_images(merged_dataset_path, num_images=5):
 
 if __name__ == "__main__":
     merged_dataset_path = "merged_dataset"
-    test_with_random_images(merged_dataset_path, num_images=5)
+    test_with_random_images(merged_dataset_path, num_images=20)
     
     print("Brightness testing complete.")
     print("Visualizations saved to debug_visualizations/brightness_test/")
