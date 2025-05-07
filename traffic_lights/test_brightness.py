@@ -6,12 +6,11 @@ import os
 import random
 
 # Constants for cropping
-CROP_LEFT_RIGHT = 12
-CROP_TOP_BOTTOM = 3
+CROP_LEFT_RIGHT = 25
+CROP_TOP_BOTTOM = 10
 IMG_SIZE = (64, 64)
 
 def get_brightness_vector(image):
-    """Extract the brightness vector from an image"""
     hsv = cv.cvtColor(image, cv.COLOR_RGB2HSV)
     
     height, width, _ = image.shape
@@ -23,14 +22,12 @@ def get_brightness_vector(image):
     return row_brightness
 
 def create_brightness_debug(image, filename):
-    """Create a debug visualization of brightness extraction"""
     hsv = cv.cvtColor(image.astype(np.uint8), cv.COLOR_RGB2HSV)
     
     height, width, _ = image.shape
     
     cropped_img = image[CROP_TOP_BOTTOM:height-CROP_TOP_BOTTOM, CROP_LEFT_RIGHT:width-CROP_LEFT_RIGHT]
     cropped_v = hsv[CROP_TOP_BOTTOM:height-CROP_TOP_BOTTOM, CROP_LEFT_RIGHT:width-CROP_LEFT_RIGHT, 2]
-    cropped_s = hsv[CROP_TOP_BOTTOM:height-CROP_TOP_BOTTOM, CROP_LEFT_RIGHT:width-CROP_LEFT_RIGHT, 1]
     
     row_brightness = np.mean(cropped_v, axis=1)
     
@@ -56,12 +53,10 @@ def create_brightness_debug(image, filename):
     plt.barh(y, row_brightness)
     plt.gca().invert_yaxis()
     
-    # Add horizontal section dividers
     section_size = len(row_brightness) // 3
     plt.axhline(y=section_size, color='r', linestyle='--', alpha=0.5)
     plt.axhline(y=section_size*2, color='r', linestyle='--', alpha=0.5)
     
-    # Add light position labels
     plt.text(-5, section_size//2, "RED", ha='right', va='center', color='red', fontsize=12)
     plt.text(-5, section_size + section_size//2, "YELLOW", ha='right', va='center', color='orange', fontsize=12)
     plt.text(-5, 2*section_size + section_size//2, "GREEN", ha='right', va='center', color='green', fontsize=12)
@@ -76,26 +71,20 @@ def create_brightness_debug(image, filename):
     plt.close()
 
 def analyze_brightness_pattern(image, true_label=None):
-    """Analyze brightness pattern and make a simple classification"""
     brightness = get_brightness_vector(image)
     
-    # Divide into three sections
     section_size = len(brightness) // 3
     
-    # Calculate sum of brightness for each section
     top_section = np.sum(brightness[:section_size])
     middle_section = np.sum(brightness[section_size:2*section_size])
     bottom_section = np.sum(brightness[2*section_size:])
     
-    # Find the brightest section
     sections = [top_section, middle_section, bottom_section]
     brightest_section = np.argmax(sections)
     
-    # Map to traffic light states (0=red, 1=yellow, 2=green)
     states = ["red", "yellow", "green"]
     predicted_state = states[brightest_section]
     
-    # Calculate confidence as normalized brightness difference
     total_brightness = sum(sections)
     if total_brightness > 0:
         confidences = [s/total_brightness for s in sections]
@@ -123,83 +112,88 @@ def analyze_brightness_pattern(image, true_label=None):
     
     return result
 
-def test_with_random_images(merged_dataset_path, num_images=5):
-    """Test brightness analysis on random images from the dataset"""
-    # Check if merged dataset exists
-    if not os.path.exists(merged_dataset_path):
-        print(f"Error: Dataset path {merged_dataset_path} not found.")
-        return
+def extract_state_from_filename(filename):
+    """Extract the traffic light state from filename"""
+    states = ["red", "yellow", "green"]
     
-    # Get all state directories
-    state_dirs = [d for d in os.listdir(merged_dataset_path) 
-                  if os.path.isdir(os.path.join(merged_dataset_path, d))]
+    for state in states:
+        if state in filename.lower():
+            return state
     
+    return None
+
+def test_with_cropped_images(test_images_dir):
     images_data = []
     
-    # For each state, pick some random images
-    num_per_state = max(1, num_images // len(state_dirs))
+    if not os.path.exists(test_images_dir):
+        print(f"Error: Test images directory not found: {test_images_dir}")
+        return
     
-    for state in state_dirs:
-        state_path = os.path.join(merged_dataset_path, state)
-        image_files = [f for f in os.listdir(state_path) 
-                      if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-        
-        if len(image_files) == 0:
-            continue
+    files = os.listdir(test_images_dir)
+    image_files = [f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+    
+    print(f"Found {len(image_files)} image files in {test_images_dir}")
+    
+    for file in image_files:
+        file_path = os.path.join(test_images_dir, file)
+        try:
+            true_label = extract_state_from_filename(file)
             
-        # Select random images
-        selected_files = random.sample(image_files, min(num_per_state, len(image_files)))
-        
-        for file in selected_files:
-            file_path = os.path.join(state_path, file)
-            try:
-                img = cv.imread(file_path)
-                if img is None:
-                    print(f"Warning: Could not read {file_path}")
-                    continue
-                    
-                img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            if true_label is None:
+                print(f"Warning: Could not determine state for {file}, skipping")
+                continue
+            
+            img = cv.imread(file_path)
+            if img is None:
+                print(f"Warning: Could not read {file_path}")
+                continue
                 
-                # Resize if needed
-                if img.shape[0] != IMG_SIZE[0] or img.shape[1] != IMG_SIZE[1]:
-                    img = cv.resize(img, IMG_SIZE)
-                
-                images_data.append({
-                    "image": img,
-                    "filename": file,
-                    "true_label": state
-                })
-                
-            except Exception as e:
-                print(f"Error processing {file_path}: {e}")
-    
+            img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            
+            if img.shape[0] != IMG_SIZE[0] or img.shape[1] != IMG_SIZE[1]:
+                img = cv.resize(img, IMG_SIZE)
+            
+            images_data.append({
+                "image": img,
+                "filename": file,
+                "true_label": true_label
+            })
+            
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+
     print(f"Loaded {len(images_data)} images for testing")
     
-    # Process each image
+    correct_count = 0
+    
     for i, data in enumerate(images_data):
         img = data["image"]
         true_label = data["true_label"]
         filename = data["filename"]
         
-        # Analyze brightness pattern
         result = analyze_brightness_pattern(img, true_label)
         
-        # Create debug visualization
         debug_filename = f"{i+1}_{true_label}_pred_{result['predicted_state']}.jpg"
         create_brightness_debug(img, debug_filename)
         
-        # Print analysis result
+        if result.get('is_correct', False):
+            correct_count += 1
+        
         print(f"Image {i+1}: {filename}")
         print(f"  True state: {true_label}")
         print(f"  Predicted state: {result['predicted_state']} (confidence: {result['confidence']:.2f})")
         print(f"  Section brightness: Red={result['section_brightness']['red']:.1f}, "
-              f"Yellow={result['section_brightness']['yellow']:.1f}, "
-              f"Green={result['section_brightness']['green']:.1f}")
+                f"Yellow={result['section_brightness']['yellow']:.1f}, "
+                f"Green={result['section_brightness']['green']:.1f}")
         print(f"  Normalized: Red={result['normalized_brightness']['red']:.2f}, "
-              f"Yellow={result['normalized_brightness']['yellow']:.2f}, "
-              f"Green={result['normalized_brightness']['green']:.2f}")
+                f"Yellow={result['normalized_brightness']['yellow']:.2f}, "
+                f"Green={result['normalized_brightness']['green']:.2f}")
         print(f"  Result: {'✓ Correct' if result.get('is_correct', False) else '✗ Incorrect'}")
         print()
+    
+    if images_data:
+        accuracy = correct_count / len(images_data) * 100
+        print(f"Overall accuracy: {correct_count}/{len(images_data)} ({accuracy:.1f}%)")
 
 if __name__ == "__main__":
     merged_dataset_path = "merged_dataset"
