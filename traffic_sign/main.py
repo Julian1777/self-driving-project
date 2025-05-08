@@ -53,9 +53,12 @@ def load_class_names(csv_path):
         print("CSV columns found:", df.columns.tolist())
         
         class_names = {}
+        id_column = 'id'
+        desc_column = 'description'
+        
         for _, row in df.iterrows():
-            class_id = row['ClassId']
-            name = row['Name']
+            class_id = row[id_column]
+            name = row[desc_column]
             class_names[str(class_id)] = name
             
         print(f"Loaded {len(class_names)} class names")
@@ -71,6 +74,8 @@ data_augmentation = tf.keras.Sequential([
     tf.keras.layers.RandomRotation(0.25),
     tf.keras.layers.RandomTranslation(0.1, 0.1),
     tf.keras.layers.RandomContrast(0.2),
+    tf.keras.layers.RandomBrightness(0.2),
+    tf.keras.layers.GaussianNoise(0.05) 
 ])
 
 
@@ -99,23 +104,25 @@ val_test_ds = tf.keras.preprocessing.image_dataset_from_directory(
     seed=SEED
 )
 
-class_names = load_class_names(os.path.join("labels.csv"))
+class_names = load_class_names(os.path.join("sign_dic.csv"))
 print(class_names)
 
 original_class_names = train_val_ds.class_names
 num_classes = len(original_class_names)
 print(num_classes)
 
-# Now apply cache and prefetch
+print("Dataset class names (directories):", train_val_ds.class_names)
+
+dir_to_index = {name: i for i, name in enumerate(train_val_ds.class_names)}
+
+ordered_descriptions = []
+for dir_name in train_val_ds.class_names:
+    description = class_names.get(dir_name, f"Class {dir_name}")
+    ordered_descriptions.append(description)
+    print(f"Directory: {dir_name} → Description: {description}")
+
 train_val_ds = train_val_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
 val_ds = val_test_ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
-
-class_indices = {i: name for i, name in enumerate(original_class_names)}
-ordered_descriptions = []
-for i in range(num_classes):
-    class_name = class_indices[i]
-    description = class_names.get(class_name, f"Class {class_name}")
-    ordered_descriptions.append(description)
 
 class_counts = np.bincount([y.numpy() for x, y in train_val_ds.unbatch()])
 class_weights = {i: 1/(count/len(class_counts)) for i, count in enumerate(class_counts)}
@@ -132,29 +139,25 @@ print(f"Test dataset size: {len(test_ds)} batches")
 
 normalization_layer = tf.keras.layers.Rescaling(1./255)
 
+base_model = tf.keras.applications.MobileNetV2(
+        input_shape=(224,224,3),
+        include_top=False,
+        weights='imagenet'
+    )
+
 model = tf.keras.Sequential([
     tf.keras.layers.Input(shape=(224, 224, 3)),
 
     data_augmentation,
 
-    normalization_layer,        
+    normalization_layer,
 
-    tf.keras.layers.Conv2D(32, (3,3), activation='relu'),
-    tf.keras.layers.BatchNormalization(),
-    tf.keras.layers.MaxPooling2D(2,2),
+    base_model,        
 
-    tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
-    tf.keras.layers.BatchNormalization(),
-    tf.keras.layers.MaxPooling2D(2,2),
+    tf.keras.layers.GlobalAveragePooling2D(),
 
-    tf.keras.layers.Conv2D(128, (3,3), activation='relu'),
-    tf.keras.layers.BatchNormalization(),
-    tf.keras.layers.MaxPooling2D(2,2),
-
-    tf.keras.layers.Flatten(),
     tf.keras.layers.Dense(256, activation='relu', dtype='float32'),
     tf.keras.layers.BatchNormalization(),
-
     tf.keras.layers.Dropout(0.5),
 
     tf.keras.layers.Dense(num_classes, activation='softmax', dtype='float32')
@@ -162,55 +165,109 @@ model = tf.keras.Sequential([
 
 print(model.summary())
 
-if not os.path.exists("sign.h5"):
+checkpoint = tf.keras.callbacks.ModelCheckpoint(
+    "best_sign_model.h5",
+    monitor="val_accuracy",
+    mode="max",
+    save_best_only=True,
+    verbose=1
+)
 
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        "best_sign_model.h5",
-        monitor="val_accuracy",
-        mode="max",
-        save_best_only=True,
-        verbose=1
-    )
+early_stopping = tf.keras.callbacks.EarlyStopping(
+    monitor="val_accuracy",
+    patience=5,
+    restore_best_weights=True
+)
 
-
+if not os.path.exists("sign_model.h5"):
+    base_model.trainable = False
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
         loss=tf.keras.losses.SparseCategoricalCrossentropy(),
         metrics=['accuracy']
     )
-
-    history = model.fit(
+    
+    history_phase1 = model.fit(
         train_val_ds,
         validation_data=val_ds,
-        epochs=EPOCHS,
+        epochs=10,
         verbose=1,
         class_weight=class_weights,
-        callbacks=[checkpoint]
+        callbacks=[checkpoint, early_stopping]
     )
-
-    model.save("sign.h5")
-
+    
+    print("Phase 1 complete. Beginning fine-tuning phase...")
+    base_model.trainable = True
+    
+    for layer in base_model.layers[:100]:
+        layer.trainable = False
+    
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),  # 10x smaller
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+        metrics=['accuracy']
+    )
+    
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor='val_loss', factor=0.2, patience=3, min_lr=0.00001
+    )
+    
+    history_phase2 = model.fit(
+        train_val_ds,
+        validation_data=val_ds,
+        epochs=15,
+        verbose=1,
+        class_weight=class_weights,
+        callbacks=[checkpoint, early_stopping, reduce_lr]
+    )
+    
+    combined_history = {}
+    for key in history_phase1.history:
+        combined_history[key] = history_phase1.history[key] + history_phase2.history[key]
+    
+    model.save("sign_model.h5")
     
     plt.figure(figsize=(12, 4))
     plt.subplot(1, 2, 1)
-    plt.plot(history.history['loss'], label='Train Loss')
-    plt.plot(history.history['val_loss'], label='Val Loss')
+    plt.plot(combined_history['loss'], label='Train Loss')
+    plt.plot(combined_history['val_loss'], label='Val Loss')
     plt.title('Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend()
     plt.subplot(1, 2, 2)
-    plt.plot(history.history['accuracy'], label='Train Accuracy')
-    plt.plot(history.history['val_accuracy'], label='Val Accuracy')
+    plt.plot(combined_history['accuracy'], label='Train Accuracy')
+    plt.plot(combined_history['val_accuracy'], label='Val Accuracy')
     plt.title('Accuracy')
-    plt.xlabel('Epoch')
+    plt.xlabel('Epoch') 
     plt.ylabel('Accuracy')
     plt.legend()
     plt.show()
 
 else:
-    model = tf.keras.models.load_model("sign.h5")
+    model = tf.keras.models.load_model("sign_model.h5")
     print("Model loaded successfully.")
+
+if not os.path.exists("sign_inference.h5"):
+    print("Model layers:")
+    for i, layer in enumerate(model.layers):
+        print(f"  {i}: {layer.name} ({type(layer).__name__})")
+
+    inference_model = tf.keras.Sequential()
+    inference_model.add(tf.keras.layers.Input(shape=(224, 224, 3)))
+
+    inference_model.add(tf.keras.layers.Rescaling(1./255, name="inference_rescaling"))
+
+    base_model = model.get_layer("mobilenetv2_1.00_224")
+    inference_model.add(base_model)
+
+    inference_model.add(model.get_layer("global_average_pooling2d"))
+    inference_model.add(model.get_layer("dense"))
+    inference_model.add(model.get_layer("batch_normalization"))
+    inference_model.add(model.get_layer("dense_1"))
+
+    inference_model.save("sign_inference.h5")
+    print("Saved inference-only model to sign_inference.h5")
 
 plt.figure(figsize=(10, 10))
 for images, labels in val_ds.take(1):  

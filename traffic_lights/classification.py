@@ -660,7 +660,7 @@ def visualize_sample_annotations(dataset_type, num_samples=5):
     print(f"Visualization complete. Check the {debug_dir} directory for results.")
 
 def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True):
-    class_names = ['green', 'red', 'yellow']
+    class_names = STATES
     
     for batch_images, batch_labels in dataset.take(num_batches):
         predictions = model.predict(batch_images, verbose=0)
@@ -697,164 +697,8 @@ def visualize_predictions(model, dataset, num_batches=1, show_ground_truth=True)
         plt.tight_layout()
         plt.show()
 
-
-def export_saved_model():
-    """Export the model to SavedModel format with proper brightness extraction."""
-    print("Creating inference model for export...")
-    inference_model = build_traffic_light_model()
-    
-    # Load the trained weights
-    checkpoint_path = "traffic_light_classification_checkpoint.h5"
-    print(f"Loading weights from {checkpoint_path}...")
-    inference_model.load_weights(checkpoint_path)
-    
-    saved_model_path = "traffic_light_classification_savedmodel"
-    print(f"Saving model to {saved_model_path}...")
-    
-    # Define a serving function that explicitly implements brightness extraction
-    @tf.function(input_signature=[tf.TensorSpec(shape=(None, 64, 64, 3), dtype=tf.float32)])
-    def serving_function(input_imgs):
-        # Manually extract brightness features
-        hsv = tf.image.rgb_to_hsv(input_imgs)
-        v_channel = hsv[:, :, :, 2]
-        cropped_v = v_channel[:, CROP_TOP_BOTTOM:tf.shape(input_imgs)[1]-CROP_TOP_BOTTOM, 
-                            CROP_LEFT_RIGHT:tf.shape(input_imgs)[2]-CROP_LEFT_RIGHT]
-        row_brightness = tf.reduce_mean(cropped_v, axis=2)
-        
-        # Reshape for dense layer
-        b = tf.reshape(row_brightness, [tf.shape(input_imgs)[0], -1])
-        
-        # Process brightness manually
-        b = inference_model.get_layer("dense_brightness")(b)
-        b = inference_model.get_layer("drop_brightness")(b, training=False)
-        
-        # Process CNN branch
-        x = inference_model.get_layer("conv1")(input_imgs)
-        x = inference_model.get_layer("bn1")(x)
-        x = inference_model.get_layer("pool1")(x)
-        x = inference_model.get_layer("conv2")(x)
-        x = inference_model.get_layer("bn2")(x)
-        x = inference_model.get_layer("pool2")(x)
-        x = inference_model.get_layer("conv3")(x)
-        x = inference_model.get_layer("bn3")(x)
-        x = inference_model.get_layer("pool3")(x)
-        x = inference_model.get_layer("flatten_cnn")(x)
-        x = inference_model.get_layer("dense_cnn")(x)
-        x = inference_model.get_layer("drop_cnn")(x, training=False)
-        
-        # Combine branches
-        combined = tf.concat([x, b], axis=1)
-        
-        # Final classification
-        outputs = inference_model.get_layer("class_output")(combined)
-        
-        return {"predictions": outputs}
-    
-    # Save the model with the custom serving function
-    tf.saved_model.save(
-        inference_model, 
-        saved_model_path,
-        signatures={"serving_default": serving_function}
-    )
-    
-    print("Model saved successfully in SavedModel format")
-    
-    # Verify the saved model works
-    try:
-        print("Testing the saved model...")
-        loaded_model = tf.saved_model.load(saved_model_path)
-        
-        # Create a simple test image
-        test_img = tf.ones((1, 64, 64, 3), dtype=tf.float32) * 0.5
-        
-        # Add a bright spot in different positions to simulate traffic lights
-        for i, pos in enumerate([(10, 32), (32, 32), (54, 32)]):  # Top, middle, bottom
-            test_img_copy = tf.identity(test_img)
-            y, x = pos
-            test_img_copy = tf.tensor_scatter_nd_update(
-                test_img_copy, 
-                [[0, y, x, 0], [0, y, x, 1], [0, y, x, 2]], 
-                [1.0, 1.0, 1.0]
-            )
-            
-            # Make prediction
-            infer = loaded_model.signatures["serving_default"]
-            result = infer(test_img_copy)
-            pred = result["predictions"].numpy()[0]
-            
-            print(f"Test {i+1} (light at {pos}): {STATES} -> {pred}")
-        
-        print("SavedModel validation complete!")
-    except Exception as e:
-        print(f"Error testing saved model: {e}")
-
-def extract_brightness_features(image):
-    hsv = tf.image.rgb_to_hsv(image)
-    v_channel = hsv[:, :, :, 2]
-    cropped_v = v_channel[:, CROP_TOP_BOTTOM:tf.shape(image)[1]-CROP_TOP_BOTTOM, 
-                        CROP_LEFT_RIGHT:tf.shape(image)[2]-CROP_LEFT_RIGHT]
-    row_brightness = tf.reduce_mean(cropped_v, axis=2)
-    return row_brightness
-
-def get_brightness_vector(image):
-    hsv = cv.cvtColor(image, cv.COLOR_RGB2HSV)
-    
-    height, width, _ = image.shape
-    cropped_v = hsv[CROP_TOP_BOTTOM:height-CROP_TOP_BOTTOM, 
-                    CROP_LEFT_RIGHT:width-CROP_LEFT_RIGHT, 2]
-    
-    row_brightness = np.mean(cropped_v, axis=1)
-    
-    return row_brightness
-
-def analyze_brightness_pattern(image, true_label=None):
-    brightness = get_brightness_vector(image)
-    
-    section_size = len(brightness) // 3
-    
-    top_section = np.sum(brightness[:section_size])
-    middle_section = np.sum(brightness[section_size:2*section_size])
-    bottom_section = np.sum(brightness[2*section_size:])
-    
-    sections = [top_section, middle_section, bottom_section]
-    brightest_section = np.argmax(sections)
-    
-    predicted_state = STATES[brightest_section]
-    
-    total_brightness = sum(sections)
-    if total_brightness > 0:
-        confidences = [s/total_brightness for s in sections]
-    else:
-        confidences = [0.33, 0.33, 0.33]
-    
-    result = {
-        "predicted_state": predicted_state,
-        "confidence": confidences[brightest_section],
-        "section_brightness": {
-            "red": sections[0],
-            "yellow": sections[1],
-            "green": sections[2]
-        },
-        "normalized_brightness": {
-            "red": confidences[0],
-            "yellow": confidences[1],
-            "green": confidences[2]
-        }
-    }
-    
-    if true_label is not None:
-        result["true_state"] = true_label
-        result["is_correct"] = predicted_state == true_label
-    
-    return result
-
 def build_traffic_light_model():
     inputs = Input(shape=INPUT_SHAPE, name="image_input")
-
-    brightness = Lambda(extract_brightness_features, name="brightness_vec")(inputs)
-    b = Flatten(name="flatten_brightness")(brightness)
-    b = Dense(32, activation="relu", name="dense_brightness")(b)
-    b = Dropout(0.3, name="drop_brightness")(b)
 
     x = Conv2D(32, 3, padding="same", activation="relu", name="conv1")(inputs)
     x = BatchNormalization(name="bn1")(x)
@@ -869,13 +713,14 @@ def build_traffic_light_model():
     x = MaxPooling2D(2, name="pool3")(x)
 
     x = Flatten(name="flatten_cnn")(x)
-    x = Dense(128, activation="relu", name="dense_cnn")(x)
-    x = Dropout(0.5, name="drop_cnn")(x)
+    x = Dense(128, activation="relu", name="dense1")(x)
+    x = Dropout(0.5, name="dropout1")(x)
+    x = Dense(64, activation="relu", name="dense2")(x)
+    x = Dropout(0.3, name="dropout2")(x)
 
-    combined = Concatenate(name="concat")([x, b])
-    outputs  = Dense(len(STATES), activation="softmax", name="class_output")(combined)
+    outputs = Dense(len(STATES), activation="softmax", name="output")(x)
 
-    model = Model(inputs, outputs, name="traffic_light_classifier")
+    model = Model(inputs, outputs, name="traffic_light_classifier_cnn")
     return model
 
 if not os.path.exists("debug_visualizations"):
@@ -948,6 +793,9 @@ model = build_traffic_light_model()
 print(model.summary())
 
 
+checkpoint_path = "traffic_light_cnn_checkpoint.h5"
+model_path = "traffic_light_cnn_model.h5"
+
 if os.path.exists("traffic_light_classification_checkpoint.h5"):
     model.load_weights("traffic_light_classification_checkpoint.h5")
     print("Model Checkpoint loaded successfully.")
@@ -963,6 +811,12 @@ else:
         verbose=1
     )
 
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+    monitor="val_accuracy",
+    patience=5,
+    restore_best_weights=True
+    )
+
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
         loss=tf.keras.losses.SparseCategoricalCrossentropy(),
@@ -975,7 +829,7 @@ else:
         epochs=EPOCHS,
         verbose=1,
         class_weight=class_weights,
-        callbacks=[checkpoint]
+        callbacks=[checkpoint, early_stopping]
     )
 
     model.save_weights("traffic_light_classification_weights.h5")
@@ -999,8 +853,5 @@ else:
     plt.legend()
     plt.show()
 
-    model.save("traffic_light_classification_model.h5", save_format='h5')
-    print("Complete model (architecture + weights) saved successfully.")
-
-    if os.path.exists("traffic_light_classification_model.h5"):
-        export_saved_model()
+    model.save(model_path, save_format='h5')
+    print(f"Complete model saved to {model_path}")

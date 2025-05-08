@@ -3,11 +3,13 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.keras.models import load_model
 import cv2 as cv
+from traffic_light_class_cv import analyze_brightness_pattern
+
 
 
 IMG_SIZE = (224, 224)
 LIGHT_MODEL_PATH = os.path.join("model", "traffic_light_classification.h5")
-LIGHT_STATES = ['go', 'goLeft', 'stop', 'stopLeft', 'warning']
+STATES = ["red", "yellow", "green"]
 
 def img_preprocessing(image_input):
     if isinstance(image_input, str):
@@ -35,8 +37,24 @@ def predict_traffic_light(frame):
     
     state_id = np.argmax(prediction)
     confidence = float(prediction[state_id])
+
+    if confidence < 0.6:
+        print("CNN confidence too low, falling back to OpenCV classifier")
+        if isinstance(frame, str):
+            img = cv.imread(frame)
+            img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+        else:
+            img = frame.copy()
+
+        img = cv.resize(img, (64, 64))
+
+        cv_result = analyze_brightness_pattern(img)
+        cv_state = cv_result["predicted_state"]
+        cv_confidence = cv_result["confidence"]
+
+        return [{'state': cv_state, 'confidence': cv_confidence, 'method': 'opencv'}]
     
-    state_name = LIGHT_STATES[state_id] if state_id < len(LIGHT_STATES) else f"Unknown_{state_id}"
+    state_name = STATES[state_id] if state_id < len(STATES) else f"Unknown_{state_id}"
     
     return [{'state': state_name, 'confidence': confidence}]
     
