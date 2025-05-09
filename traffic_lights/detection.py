@@ -15,6 +15,7 @@ import numpy as np
 from ultralytics import YOLO
 from datetime import datetime
 import torch
+import cv2 as cv
 
 
 
@@ -23,9 +24,9 @@ import torch
 SOURCE_DIR = "dataset"
 TARGET_DIR = "yolo_dataset"
 TRAIN_RATIO = 0.9
-CLASS_ID = 0
-EPOCHS = 80
-BATCH_SIZE = 4
+EPOCHS = 20
+BATCH_SIZE = 32
+WORKERS = 2
 GRID_SIZE = 7
 BOXES_PER_CELL = 2
 IMG_SIZE = (416,416)
@@ -125,6 +126,23 @@ def prepare_yolo_dataset():
         
         if img_path.startswith(DTLD_DIR):
             dataset_prefix = "dtld_"
+            try:
+                pil_image = Image.open(img_path)
+                np_img = np.array(pil_image)
+                
+                if np_img.dtype == np.uint16:
+                    np_img = ((np_img - np_img.min()) * 255.0 / (np_img.max() - np_img.min())).astype(np.uint8)
+                
+                if len(np_img.shape) == 2:
+                    np_img = np.stack([np_img] * 3, axis=-1)
+
+                base_name, _ = os.path.splitext(original_name)    
+                dest_path = os.path.join(temp_dir, f"{dataset_prefix}{base_name}.jpg")
+                cv.imwrite(dest_path, np_img)
+                image_mapping[f"{dataset_prefix}{base_name}.jpg"] = img_path
+                continue
+            except Exception as e:
+                print(f"Error processing DTLD image {img_path}: {e}")
         else:
             dataset_prefix = "lisa_"
             
@@ -218,13 +236,25 @@ def prepare_yolo_dataset():
     print("Cleaning up temporary directory...")
     shutil.rmtree(temp_dir)
 
-def generate_yolo_labels():
+def generate_yolo_labels():                
     print("Generating YOLO format labels...")
     
     dtld_annotations = {}
-    
-    # Process all city annotation files
     dtld_annotations_dir = os.path.join(TARGET_DIR, "Annotations", "DTLD")
+
+    for city in DTLD_CITIES:
+        city_annotation = os.path.join(dtld_annotations_dir, f"{city}.json")
+        if os.path.exists(city_annotation):
+            with open(city_annotation, 'r') as f:
+                data = json.load(f)
+                if "images" in data and len(data["images"]) > 0:
+                    print("SAMPLE JSON ENTRY:")
+                    print(f"Image path: {data['images'][0].get('image_path', 'unknown')}")
+                    print(f"File basename: {os.path.basename(data['images'][0].get('image_path', 'unknown'))}")
+                    if "labels" in data["images"][0]:
+                        print(f"Sample label: {data['images'][0]['labels'][0]}")
+                    break
+    
     if os.path.exists(dtld_annotations_dir):
         print("Processing DTLD annotations...")
         
@@ -236,8 +266,14 @@ def generate_yolo_labels():
                     with open(city_annotation, 'r') as f:
                         data = json.load(f)
                         
+                    # Insert this debug code here:
+                    total_images = 0
+                    total_traffic_lights = 0
+                    failed_images = 0
+
                     if "images" in data and isinstance(data["images"], list):
                         for image_entry in tqdm(data["images"], desc=f"Loading {city} annotations"):
+                            total_images += 1
                             rel_path = image_entry.get("image_path", "")
                             if not rel_path:
                                 continue
@@ -249,10 +285,42 @@ def generate_yolo_labels():
                             img_height = image_entry.get("height", 0)
                             
                             if img_width <= 0 or img_height <= 0:
+                                try:
+                                    # Construct the full path to the image
+                                    img_path = os.path.join(DTLD_DIR, rel_path)
+                                    if os.path.exists(img_path):
+                                        with Image.open(img_path) as img:
+                                            img_width, img_height = img.size
+                                            print(f"Loaded dimensions for {img_filename}: {img_width}x{img_height}")
+                                    else:
+                                        # Try alternate path formats
+                                        base_dir = os.path.dirname(rel_path)
+                                        alt_path = os.path.join(DTLD_DIR, base_dir, img_filename)
+                                        if os.path.exists(alt_path):
+                                            with Image.open(alt_path) as img:
+                                                img_width, img_height = img.size
+                                except Exception as e:
+                                    print(f"Error opening image {img_filename}: {e}")
+
+                            if img_width <= 0 or img_height <= 0:
+                                failed_images += 1
+                                print(f"Still invalid dimensions for {img_filename}: {img_width}x{img_height}")
                                 continue
                             
+                            label_counter = 0
                             for label in image_entry.get("labels", []):
+                                label_counter += 1
                                 attr = label.get("attributes", {})
+                                state = attr.get("state", "")
+                                
+                                if state == "red":
+                                    class_id = 0
+                                elif state == "yellow" or state == "amber":
+                                    class_id = 1
+                                elif state == "green":
+                                    class_id = 2
+                                else:
+                                    class_id = 0
                                 
                                 x = label.get("x", 0)
                                 y = label.get("y", 0)
@@ -265,20 +333,31 @@ def generate_yolo_labels():
                                     width = w / img_width
                                     height = h / img_height
                                     
-                                    traffic_lights.append((x_center, y_center, width, height))
+                                    traffic_lights.append((x_center, y_center, width, height, class_id))
                             
-                            if traffic_lights:
-                                if img_filename in dtld_annotations:
-                                    city_img_filename = f"{city.lower()}_{img_filename}"
-                                    dtld_annotations[city_img_filename] = traffic_lights
-                                else:
-                                    dtld_annotations[img_filename] = traffic_lights
+                            if not traffic_lights:
+                                print(f"Image {img_filename} has {label_counter} labels but no valid traffic lights")
+                            else:
+                                total_traffic_lights += len(traffic_lights)
+                                
+                                dtld_annotations[img_filename] = traffic_lights
+                                
+                                base_name, ext = os.path.splitext(img_filename)
+                                dtld_processed_name = f"dtld_{base_name}.jpg"  
+                                dtld_annotations[dtld_processed_name] = traffic_lights
+                                
+                                dtld_annotations[f"dtld_DE_{base_name}.jpg"] = traffic_lights
+                                
+                                prefixed_name = f"DE_{base_name}"
+                                dtld_annotations[prefixed_name] = traffic_lights
+                                city_img_filename = f"{city.lower()}_{img_filename}"
+                                dtld_annotations[city_img_filename] = traffic_lights
                                 
                 except Exception as e:
                     print(f"Error processing {city} annotations: {e}")
                     
-        print(f"Loaded annotations for {len(dtld_annotations)} DTLD images")
-    
+    print(f"{city}: Processed {total_images} images, found {total_traffic_lights} traffic lights, failed {failed_images} images")
+        
     lisa_annotations = {}
     lisa_annotations_dir = os.path.join(TARGET_DIR, "Annotations", "LISA", "Annotations")
     if os.path.exists(lisa_annotations_dir):
@@ -303,6 +382,17 @@ def generate_yolo_labels():
                             if len(row) >= 6:
                                 image_path = row[0]
                                 image_name = os.path.basename(image_path)
+
+                                light_type = row[1].lower() if len(row) > 1 else ""
+
+                                if "red" in light_type:
+                                    class_id = 0
+                                elif "yellow" in light_type or "amber" in light_type:
+                                    class_id = 1
+                                elif "green" in light_type or "go" in light_type:
+                                    class_id = 2
+                                else:
+                                    class_id = 0
                                 
                                 try:
                                     x1 = float(row[2])
@@ -313,7 +403,7 @@ def generate_yolo_labels():
                                     if image_name not in lisa_annotations:
                                         lisa_annotations[image_name] = []
                                         
-                                    lisa_annotations[image_name].append((x1, y1, x2, y2))
+                                    lisa_annotations[image_name].append((x1, y1, x2, y2, class_id))
                                 except:
                                     continue
                 except Exception as e:
@@ -328,6 +418,8 @@ def generate_yolo_labels():
     print("YOLO label generation complete!")
 
 def generate_labels_for_dir(split, dtld_annotations, lisa_annotations):
+    print(f"Sample DTLD annotation keys: {list(dtld_annotations.keys())[:5]}")
+
     image_dir = os.path.join(TARGET_DIR, "images", split)
     label_dir = os.path.join(TARGET_DIR, "labels", split)
     
@@ -343,13 +435,16 @@ def generate_labels_for_dir(split, dtld_annotations, lisa_annotations):
     total = len(image_files)
     matched = 0
     unmatched = 0
+
+    print(f"Sample DTLD image filenames: {[f for f in image_files if f.startswith('dtld_')][:5]}")
+
     
     for img_file in tqdm(image_files, desc=f"Processing {split} images"):
         label_file = os.path.splitext(img_file)[0] + ".txt"
         label_path = os.path.join(label_dir, label_file)
         img_path = os.path.join(image_dir, img_file)
         
-        original_name = find_original_image_name(img_path, img_file)
+        original_name = find_original_image_name(img_path, img_file, dtld_annotations)
         
         boxes = None
         img_width, img_height = None, None
@@ -366,24 +461,25 @@ def generate_labels_for_dir(split, dtld_annotations, lisa_annotations):
                     
                 if img_width > 0 and img_height > 0:
                     boxes = []
-                    for x1, y1, x2, y2 in unnormalized_boxes:
+                    for x1, y1, x2, y2, class_id in unnormalized_boxes:
                         width = (x2 - x1) / img_width
                         height = (y2 - y1) / img_height
                         x_center = (x1 + (x2 - x1) / 2) / img_width
                         y_center = (y1 + (y2 - y1) / 2) / img_height
-                        boxes.append((x_center, y_center, width, height))
+                        boxes.append((x_center, y_center, width, height, class_id))
             except Exception as e:
                 print(f"Error processing {img_path}: {e}")
         
         if boxes:
             with open(label_path, 'w') as f:
                 for box in boxes:
+                    class_id = box[4] if len(box) > 4 else 0
                     x_center = max(0, min(1, box[0]))
                     y_center = max(0, min(1, box[1]))
                     width = max(0, min(1, box[2]))
                     height = max(0, min(1, box[3]))
                     
-                    f.write(f"0 {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+                    f.write(f"{int(class_id)} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
             matched += 1
         else:
             with open(label_path, 'w') as f:
@@ -392,26 +488,52 @@ def generate_labels_for_dir(split, dtld_annotations, lisa_annotations):
     
     print(f"{split} labels generated: {matched} with annotations, {unmatched} without annotations")
 
-def find_original_image_name(img_path, img_file):
-    """Find the original image name for annotation matching."""
-    if img_file.startswith("dtld_") or img_file.startswith("lisa_"):
-        parts = img_file.split('_')
-        if img_file.startswith("dtld_"):
-            for city in DTLD_CITIES:
-                city_lower = city.lower()
-                if city_lower in img_file:
-                    city_index = img_file.find(city_lower)
-                    if city_index > 0:
-                        original_name = img_file[city_index + len(city_lower) + 1:]
-                        return f"{city_lower}_{original_name}"
-            
-            # For cases without city prefix in filename
-            prefix_count = img_file.count('_', 0, img_file.find("dtld_") + 5)
-            original_name = '_'.join(parts[prefix_count:])
-            return original_name
+def find_original_image_name(img_path, img_file, dtld_annotations):
+    if img_file.startswith("dtld_"):
+        base_name, ext = os.path.splitext(img_file[5:])
+        
+        if base_name.startswith("DE_"):
+            without_de = base_name[3:]
         else:
-            original_name = '_'.join(parts[2:])
-            return original_name
+            without_de = base_name
+        
+        potential_matches = [
+            img_file[5:],
+            base_name,
+            without_de,
+            f"{without_de}.jpg",
+            f"{base_name}.tiff",
+            f"{base_name}.jpg",
+            f"{base_name}.pgm",
+            f"{base_name}.png"
+        ]
+        
+        for city in DTLD_CITIES:
+            city_lower = city.lower()
+            potential_matches.append(f"{city_lower}_{without_de}{ext}")
+            potential_matches.append(f"{city_lower}_{without_de}.jpg")
+            potential_matches.append(f"{city_lower}_{base_name}{ext}")
+            potential_matches.append(f"{city_lower}_{base_name}.jpg")
+        
+        for name in potential_matches:
+            if name in dtld_annotations:
+                return name
+        
+        print(f"Failed to match DTLD image: {img_file}")
+        if len(dtld_annotations) > 0:
+            similar_keys = []
+            for key in dtld_annotations.keys():
+                if without_de in key:
+                    similar_keys.append(key)
+                    if len(similar_keys) >= 3:
+                        break
+            print(f"Available keys similar to this: {similar_keys}")
+        
+        return img_file[5:]
+        
+    elif img_file.startswith("lisa_"):
+        original_name = '_'.join(img_file.split('_')[1:])
+        return original_name
     
     return img_file
 
@@ -811,13 +933,14 @@ if __name__ == '__main__':
     results = model.train(
         data=dataset_yaml_path,
         epochs=EPOCHS,
+        workers=WORKERS,
         imgsz=IMG_SIZE,
         batch=BATCH_SIZE,
         name='yolo_traffic_light_detector',
         patience=10,
         save=True,
         device=device,
-        cache=False,
+        cache='disk',
         augment = False,
     )
 

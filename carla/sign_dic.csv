@@ -1,0 +1,44 @@
+﻿id,description
+0,20 speed limit
+1,30 speed limit
+2,50 speed limit
+3,60 speed limit
+4,70 speed limit
+5,80 speed limit
+6,80 speed limit removed
+7,100 speed limit
+8,120 speed limit
+9,no overtaking
+10,truck overtaking prohibited
+11,priority junction
+12,priority road
+13,yield
+14,stop
+15,no entry
+16,trucks prohibited
+17,no entry one way
+18,danger
+19,sharp left
+20,sharp right
+21,twisty road
+22,bumps
+23,slippery
+24,road narrowing
+25,road works
+26,traffic lights
+27,crosswalk
+28,children crossing
+29,bycicles
+30,ice/snow…
+31,wild animals
+32,no speed limit
+33,turn right
+34,turn left
+35,straight
+36,straight or right
+37,straight or left
+38,right side
+39,left side
+40,roundabout
+41,no more overtaking prohibition
+42,no more truck overtaking prohibition
