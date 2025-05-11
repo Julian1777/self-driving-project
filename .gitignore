@@ -1,6 +1,7 @@
 *.mov
 *.mp4
 *.h5
+*.zip
 lane_detection_cnn/dataset/
 traffic-sign/dataset/
 traffic_lights/dataset
@@ -9,6 +10,7 @@ traffic_lights/classified_dataset
 traffic_sign/dataset
 traffic_lights/yolo_dataset
 traffic_lights/dtld_dataset
+traffic_lights/colab_dataset
 traffic_lights/merged_dataset
 traffic_lights/debug_visualizations
 

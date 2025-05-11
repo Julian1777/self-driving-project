@@ -18,6 +18,7 @@ import torch
 import cv2 as cv
 
 
+torch.backends.cudnn.benchmark = True
 
 
 
@@ -25,8 +26,8 @@ SOURCE_DIR = "dataset"
 TARGET_DIR = "yolo_dataset"
 TRAIN_RATIO = 0.9
 EPOCHS = 20
-BATCH_SIZE = 32
-WORKERS = 2
+BATCH_SIZE = 16
+WORKERS = 0
 GRID_SIZE = 7
 BOXES_PER_CELL = 2
 IMG_SIZE = (416,416)
@@ -342,17 +343,6 @@ def generate_yolo_labels():
                                 
                                 dtld_annotations[img_filename] = traffic_lights
                                 
-                                base_name, ext = os.path.splitext(img_filename)
-                                dtld_processed_name = f"dtld_{base_name}.jpg"  
-                                dtld_annotations[dtld_processed_name] = traffic_lights
-                                
-                                dtld_annotations[f"dtld_DE_{base_name}.jpg"] = traffic_lights
-                                
-                                prefixed_name = f"DE_{base_name}"
-                                dtld_annotations[prefixed_name] = traffic_lights
-                                city_img_filename = f"{city.lower()}_{img_filename}"
-                                dtld_annotations[city_img_filename] = traffic_lights
-                                
                 except Exception as e:
                     print(f"Error processing {city} annotations: {e}")
                     
@@ -652,61 +642,6 @@ def crop_around_traffic_lights(padding=30):
     print(f"Cropped dataset created in {crops_dir}")
     return crops_dir
 
-
-
-
-def load_dataset(image_dir, label_dir, image_size=(IMG_SIZE), grid_size=7, boxes_per_cell=2):
-    def load_example(img_path):
-        img_path_str = img_path.numpy().decode()
-        base_name = os.path.splitext(os.path.basename(img_path_str))[0]
-        label_path = os.path.join(label_dir, f"{base_name}.txt")
-        
-        img = tf.io.read_file(img_path_str)
-        img = tf.image.decode_jpeg(img, channels=3)
-        img = tf.image.resize(img, image_size)
-        img = img / 255.0
-        
-        outputs_per_box = 5  # x, y, w, h, confidence
-        target = np.zeros((grid_size, grid_size, boxes_per_cell, outputs_per_box))
-        
-        if os.path.exists(label_path) and os.path.getsize(label_path) > 0:
-            with open(label_path, 'r') as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) == 5:
-                        class_id, x_center, y_center, width, height = map(float, parts)
-                        
-                        grid_x = int(x_center * grid_size)
-                        grid_y = int(y_center * grid_size)
-                        
-                        grid_x = max(0, min(grid_size - 1, grid_x))
-                        grid_y = max(0, min(grid_size - 1, grid_y))
-                        
-                        cell_x = x_center * grid_size - grid_x
-                        cell_y = y_center * grid_size - grid_y
-                        
-                        min_conf_idx = np.argmin(target[grid_y, grid_x, :, 4])
-                        
-                        target[grid_y, grid_x, min_conf_idx, 0] = cell_x
-                        target[grid_y, grid_x, min_conf_idx, 1] = cell_y
-                        target[grid_y, grid_x, min_conf_idx, 2] = width
-                        target[grid_y, grid_x, min_conf_idx, 3] = height
-                        target[grid_y, grid_x, min_conf_idx, 4] = 1.0  # confidence
-        
-        return img, tf.convert_to_tensor(target, dtype=tf.float32)
-    def wrapper(img_path):
-        img, label = tf.py_function(load_example, [img_path], [tf.float32, tf.float32])
-        img.set_shape((image_size[0], image_size[1], 3))
-        label.set_shape((5,))
-        return img, label
-
-    img_paths = sorted(glob.glob(os.path.join(image_dir, "*.jpg")))
-    print(f"Found {len(img_paths)} images in {image_dir}")
-    dataset = tf.data.Dataset.from_tensor_slices(img_paths)
-    dataset = dataset.map(wrapper)
-    dataset = dataset.shuffle(500).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
-    return dataset
-
 def detect_traffic_lights(model, image_path):
     results = model.predict(image_path, conf=0.25)
     
@@ -880,38 +815,6 @@ if __name__ == '__main__':
         print("Creating cropped dataset...")
         crop_around_traffic_lights(padding=30)
 
-    train_dataset = load_dataset(
-        os.path.join(TARGET_DIR, "images", "train"),
-        os.path.join(TARGET_DIR, "labels", "train"),
-        grid_size=GRID_SIZE, 
-        boxes_per_cell=BOXES_PER_CELL
-    )
-
-    val_dataset = load_dataset(
-        os.path.join(TARGET_DIR, "images", "val"),
-        os.path.join(TARGET_DIR, "labels", "val"),
-        grid_size=GRID_SIZE, 
-        boxes_per_cell=BOXES_PER_CELL
-    )
-
-    train_path = os.path.join(TARGET_DIR, "images", "train")
-    val_path = os.path.join(TARGET_DIR, "images", "val")
-
-    print(f"Train directory: {train_path}")
-    print(f"Train directory exists: {os.path.exists(train_path)}")
-    if os.path.exists(train_path):
-        files = os.listdir(train_path)
-        print(f"Files in train directory: {len(files)}")
-        if len(files) > 0:
-            print(f"Sample files: {files[:5]}")
-
-    print(f"Val directory: {val_path}")
-    print(f"Val directory exists: {os.path.exists(val_path)}")
-    if os.path.exists(val_path):
-        files = os.listdir(val_path)
-        print(f"Files in val directory: {len(files)}")
-        if len(files) > 0:
-            print(f"Sample files: {files[:5]}")
 
     model = YOLO(YOLO_MODEL_SIZE)
 
@@ -940,8 +843,11 @@ if __name__ == '__main__':
         patience=10,
         save=True,
         device=device,
-        cache='disk',
+        cache=False,
+        amp=True,
         augment = False,
+        close_mosaic=10,
+        plots=True
     )
 
 
