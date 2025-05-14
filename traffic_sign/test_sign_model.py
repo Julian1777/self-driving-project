@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import os
 import cv2 as cv
 import pandas as pd
+import keras
+from tensorflow.keras.models import load_model
+
 
 IMG_SIZE = (224, 224)
 test_dir = "test_images"
