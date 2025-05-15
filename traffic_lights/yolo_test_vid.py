@@ -9,8 +9,8 @@ import time
 
 def run_traffic_light_detection_video():
     # Paths
-    MODEL_PATH = "best_model.pt"
-    VIDEO_PATH = "ams_driving.mp4"
+    MODEL_PATH = "final_model.pt"
+    VIDEO_PATH = "test_video_ams_cut.mp4"
     
     # Recording settings (optional)
     RECORD_OUTPUT = True

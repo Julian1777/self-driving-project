@@ -5,15 +5,13 @@ import shutil
 import random
 import numpy as np
 import torch
-from google.colab import drive
+from google.colab import drive, files
 from tqdm.notebook import tqdm
 from ultralytics import YOLO
 from datetime import datetime
 
-# Mount Google Drive
 drive.mount('/content/drive')
 
-# Configuration
 BASE_DIR = "/content/traffic_sign_detection_yolo"
 DATASET_DIR = f"{BASE_DIR}/dataset"
 ANNOTATIONS_DIR = "/content/annotations"  # Directory containing JSON annotations
@@ -26,7 +24,6 @@ IMG_SIZE = (640, 640)
 YOLO_MODEL_SIZE = "yolov8l.pt"
 CONF_THRESHOLD = 0.15
 
-# Create directory structure
 os.makedirs(os.path.join(DATASET_DIR, "images", "train"), exist_ok=True)
 os.makedirs(os.path.join(DATASET_DIR, "images", "val"), exist_ok=True)
 os.makedirs(os.path.join(DATASET_DIR, "labels", "train"), exist_ok=True)
@@ -48,7 +45,6 @@ def load_class_mapping():
     """Create a mapping from sign labels to class IDs"""
     unique_labels = set()
     
-    # First, collect all unique labels
     print("Scanning for unique labels...")
     json_files = glob.glob(os.path.join(ANNOTATIONS_DIR, "*.json"))
     for json_file in tqdm(json_files):
@@ -56,10 +52,9 @@ def load_class_mapping():
             data = json.load(f)
             for obj in data.get("objects", []):
                 label = obj.get("label")
-                if label and label != "other-sign":  # Skip generic "other-sign"
+                if label and label != "other-sign":
                     unique_labels.add(label)
     
-    # Create a sorted list and mapping
     sorted_labels = sorted(list(unique_labels))
     label_to_id = {label: i for i, label in enumerate(sorted_labels)}
     
@@ -89,19 +84,16 @@ def convert_annotations(json_file, label_to_id):
             if not all(k in bbox for k in ["xmin", "ymin", "xmax", "ymax"]):
                 continue
                 
-            # Get coordinates
             xmin = bbox["xmin"]
             ymin = bbox["ymin"]
             xmax = bbox["xmax"]
             ymax = bbox["ymax"]
             
-            # Convert to YOLO format (center_x, center_y, width, height) normalized to 0-1
             x_center = (xmin + xmax) / 2 / img_width
             y_center = (ymin + ymax) / 2 / img_height
             width = (xmax - xmin) / img_width
             height = (ymax - ymin) / img_height
             
-            # Check for valid values
             if not all(0 <= val <= 1 for val in [x_center, y_center, width, height]):
                 continue
                 
@@ -120,13 +112,11 @@ def prepare_dataset():
     print("Finding all annotation files...")
     json_files = glob.glob(os.path.join(ANNOTATIONS_DIR, "*.json"))
     
-    # Generate file pairs (JSON annotation and corresponding image)
     file_pairs = []
     for json_file in json_files:
         base_name = os.path.basename(json_file)
         image_id = os.path.splitext(base_name)[0]
         
-        # Look for corresponding image (multiple possible extensions)
         for ext in ['.jpg', '.jpeg', '.png']:
             img_path = os.path.join(IMAGES_DIR, f"{image_id}{ext}")
             if os.path.exists(img_path):
@@ -135,8 +125,7 @@ def prepare_dataset():
     
     print(f"Found {len(file_pairs)} image-annotation pairs")
     
-    # Shuffle and split into train/val
-    random.seed(42)  # For reproducibility
+    random.seed(42)
     random.shuffle(file_pairs)
     
     split_idx = int(len(file_pairs) * TRAIN_RATIO)
@@ -145,45 +134,36 @@ def prepare_dataset():
     
     print(f"Split dataset: {len(train_pairs)} training, {len(val_pairs)} validation")
     
-    # Process training set
     print("Processing training set...")
     for json_file, img_path in tqdm(train_pairs):
-        # Get base filename without extension
         base_name = os.path.basename(json_file)
         image_id = os.path.splitext(base_name)[0]
         
-        # Copy image
         img_ext = os.path.splitext(img_path)[1]
         dest_img = os.path.join(DATASET_DIR, "images", "train", f"{image_id}{img_ext}")
         shutil.copy2(img_path, dest_img)
         
-        # Convert and save annotations
         yolo_annotations = convert_annotations(json_file, label_to_id)
         if yolo_annotations:
             label_path = os.path.join(DATASET_DIR, "labels", "train", f"{image_id}.txt")
             with open(label_path, 'w') as f:
                 f.write("\n".join(yolo_annotations))
     
-    # Process validation set
     print("Processing validation set...")
     for json_file, img_path in tqdm(val_pairs):
-        # Get base filename without extension
         base_name = os.path.basename(json_file)
         image_id = os.path.splitext(base_name)[0]
         
-        # Copy image
         img_ext = os.path.splitext(img_path)[1]
         dest_img = os.path.join(DATASET_DIR, "images", "val", f"{image_id}{img_ext}")
         shutil.copy2(img_path, dest_img)
         
-        # Convert and save annotations
         yolo_annotations = convert_annotations(json_file, label_to_id)
         if yolo_annotations:
             label_path = os.path.join(DATASET_DIR, "labels", "val", f"{image_id}.txt")
             with open(label_path, 'w') as f:
                 f.write("\n".join(yolo_annotations))
     
-    # Create dataset.yaml
     print("Creating dataset.yaml...")
     dataset_yaml_path = os.path.join(DATASET_DIR, "dataset.yaml")
     with open(dataset_yaml_path, "w") as f:
@@ -192,7 +172,6 @@ def prepare_dataset():
         f.write(f"nc: {len(class_names)}\n")
         f.write(f"names: {class_names}\n")
     
-    # Verify dataset
     train_imgs = glob.glob(os.path.join(DATASET_DIR, "images", "train", "*.*"))
     val_imgs = glob.glob(os.path.join(DATASET_DIR, "images", "val", "*.*"))
     train_labels = glob.glob(os.path.join(DATASET_DIR, "labels", "train", "*.txt"))
@@ -288,7 +267,6 @@ def train_model(dataset_yaml_path):
     except Exception as e:
         print(f"Could not save to Drive: {e}")
     
-    from google.colab import files
     files.download(best_model_path)
     
     results_img = f"runs/detect/yolo_traffic_sign_detector/results.png"

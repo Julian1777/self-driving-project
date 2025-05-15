@@ -24,9 +24,9 @@ os.makedirs(IMAGES_DIR, exist_ok=True)
 os.makedirs(ANNOTATIONS_DIR, exist_ok=True)
  
 
-IMG_SIZE = (320, 320)
+IMG_SIZE = (224, 224)
 INPUT_SHAPE = (IMG_SIZE[0], IMG_SIZE[1], 3)
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 SEED = 123
 EPOCHS = 30
 
@@ -245,39 +245,59 @@ def process_dataset():
     }
 
 
-def create_lane_segmenation_model(input_shape=INPUT_SHAPE, backbone_name='efficientnetb0'):
-
-    backbone = EfficientNetB0(
-        input_shape=input_shape,
-        include_top=False,
+def create_lane_segmenation_model(input_shape=INPUT_SHAPE):
+    # More reliable model without shape issues
+    inputs = tf.keras.layers.Input(shape=input_shape)
+    
+    # Use MobileNetV2 as backbone
+    base_model = tf.keras.applications.MobileNetV2(
+        input_tensor=inputs,
+        include_top=False, 
         weights='imagenet'
     )
-    backbone.trainable = False
-
-    skip1 = backbone.get_layer('block3a_expand_activation').output  # 28x28
-    skip2 = backbone.get_layer('block4a_expand_activation').output  # 14x14
-
-    x = backbone.output
-
-    x = layers.Conv2D(256, 3, activation='relu', padding='same')(x)
-    x = layers.UpSampling2D((2, 2))(x)
-    x = layers.Concatenate()([x, skip2])
-    x = layers.Conv2D(128, 3, activation='relu', padding='same')(x)
-
-    x = layers.UpSampling2D((2, 2))(x)
-    x = layers.Concatenate()([x, skip1])
-    x = layers.Conv2D(64, 3, activation='relu', padding='same')(x)
-
-    x = layers.UpSampling2D((2, 2))(x)
-    x = layers.Conv2D(32, 3, activation='relu', padding='same')(x)
-
-    x = layers.UpSampling2D((4, 4))(x)  # Upscale to 112x112
-    x = layers.Conv2D(16, 3, activation='relu', padding='same')(x)
-
+    base_model.trainable = False
+    
+    # Encoder path
+    # Get the output of the backbone
+    encoder = base_model.output
+    
+    # Decoder path - Simple upsampling without skip connections
+    # This is guaranteed to work without shape issues
+    
+    # Start with a 10×10 bottleneck (size may vary based on input)
+    x = encoder
+    
+    # Series of upsampling blocks to reach original resolution
+    # First upsampling: 10×10 -> 20×20
+    x = layers.Conv2D(256, 3, padding='same', activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.UpSampling2D(2)(x)
+    
+    # Second upsampling: 20×20 -> 40×40
+    x = layers.Conv2D(128, 3, padding='same', activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.UpSampling2D(2)(x)
+    
+    # Third upsampling: 40×40 -> 80×80
+    x = layers.Conv2D(64, 3, padding='same', activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.UpSampling2D(2)(x)
+    
+    # Fourth upsampling: 80×80 -> 160×160
+    x = layers.Conv2D(32, 3, padding='same', activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.UpSampling2D(2)(x)
+    
+    # Final upsampling: 160×160 -> 320×320
+    x = layers.Conv2D(16, 3, padding='same', activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.UpSampling2D(2)(x)
+    
+    # Output layer
     outputs = layers.Conv2D(1, 1, padding='same', activation='sigmoid')(x)
-
-    model = tf.keras.Model(inputs=backbone.input, outputs=outputs)
-
+    
+    # Create model
+    model = tf.keras.Model(inputs=inputs, outputs=outputs)
     return model
 
 lane_images_path = os.path.join(IMAGES_DIR)

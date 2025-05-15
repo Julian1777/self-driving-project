@@ -13,33 +13,28 @@ from google.colab import drive, files
 import gc
 from tqdm.notebook import tqdm
 
-# Mount Google Drive
 drive.mount('/content/drive')
 
-# Set paths and parameters
 TARGET_DIR = "/content/traffic_light_detection_yolo/dataset"
 SAMPLED_DIR = "/content/traffic_light_detection_yolo/sampled_dataset"
-SAMPLE_SIZE = 5000  # ⬆️ INCREASED from 1000 to ensure better class representation
-EPOCHS = 50  # ⬆️ INCREASED from 30 for better training
-BATCH_SIZE = 16  # ⬇️ REDUCED from 32 to improve gradient updates
+SAMPLE_SIZE = 10000
+EPOCHS = 50
+BATCH_SIZE = 16
 WORKERS = 8
-IMG_SIZE = (640, 640)  # ⬆️ INCREASED from 416 for better small object detection
-YOLO_MODEL_SIZE = "yolov8l.pt"  # UPGRADED from medium model
+IMG_SIZE = (640, 640)
+YOLO_MODEL_SIZE = "yolov8l.pt"
 STATES = ["red", "yellow", "green"]
-CONF_THRESHOLD = 0.15  # ⬇️ LOWERED from 0.25 to improve recall
+CONF_THRESHOLD = 0.2
 
-# Create directories for sampled dataset
 os.makedirs(os.path.join(SAMPLED_DIR, "images", "train"), exist_ok=True)
 os.makedirs(os.path.join(SAMPLED_DIR, "images", "val"), exist_ok=True)
 os.makedirs(os.path.join(SAMPLED_DIR, "labels", "train"), exist_ok=True)
 os.makedirs(os.path.join(SAMPLED_DIR, "labels", "val"), exist_ok=True)
 
-# GPU settings
 print(f"PyTorch CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     device = '0'
-    # ✅ ADDED memory optimization
     os.environ['CUDA_MODULE_LOADING'] = 'LAZY'
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -48,7 +43,6 @@ else:
     print("No CUDA devices available, using CPU")
     device = 'cpu'
 
-# Verify original dataset structure
 print("\nVerifying original dataset structure...")
 train_imgs = glob.glob(os.path.join(TARGET_DIR, "images", "train", "*.jpg"))
 val_imgs = glob.glob(os.path.join(TARGET_DIR, "images", "val", "*.jpg"))
@@ -58,9 +52,7 @@ val_labels = glob.glob(os.path.join(TARGET_DIR, "labels", "val", "*.txt"))
 print(f"Found {len(train_imgs)} training images and {len(train_labels)} labels")
 print(f"Found {len(val_imgs)} validation images and {len(val_labels)} labels")
 
-# ✅ NEW FUNCTION: Balance training data across classes
 def get_class_from_label(label_path):
-    """Extract traffic light classes from label file"""
     classes = set()
     try:
         with open(label_path, 'r') as f:
@@ -73,9 +65,7 @@ def get_class_from_label(label_path):
         pass
     return classes
 
-# ✅ NEW FUNCTION: Sample balanced dataset
 def balance_sample(train_imgs, sample_size):
-    """Create a balanced sample across red, yellow, green classes"""
     red_imgs = []
     yellow_imgs = []
     green_imgs = []
@@ -105,7 +95,6 @@ def balance_sample(train_imgs, sample_size):
 
     print(f"Found {len(red_imgs)} red, {len(yellow_imgs)} yellow, {len(green_imgs)} green, {len(other_imgs)} other images")
 
-    # Calculate sample sizes with priority on yellow
     yellow_target = min(len(yellow_imgs), int(sample_size * 0.4))  # 40% yellow images
     remaining = sample_size - yellow_target
     red_target = min(len(red_imgs), int(remaining * 0.5))  # Half of remaining for red
@@ -114,14 +103,12 @@ def balance_sample(train_imgs, sample_size):
     remaining -= green_target
     other_target = min(len(other_imgs), remaining)
 
-    # Sample with fixed random seed
     random.seed(42)
     sampled_yellow = random.sample(yellow_imgs, yellow_target) if yellow_target > 0 else []
     sampled_red = random.sample(red_imgs, red_target) if red_target > 0 else []
     sampled_green = random.sample(green_imgs, green_target) if green_target > 0 else []
     sampled_other = random.sample(other_imgs, other_target) if other_target > 0 else []
 
-    # Combine samples
     balanced_sample = sampled_yellow + sampled_red + sampled_green + sampled_other
     random.shuffle(balanced_sample)  # Shuffle again
 
@@ -130,7 +117,105 @@ def balance_sample(train_imgs, sample_size):
 
     return balanced_sample
 
-# ✅ MODIFIED: Sample images with class balance
+def crop_around_traffic_lights(img_path, label_path, output_img_path, output_label_path, 
+                               padding_factor=3.0, min_crop_size=224, max_crop_size=640):
+    try:
+        img = cv.imread(img_path)
+        if img is None:
+            print(f"Warning: Could not read image {img_path}")
+            return False
+            
+        img_height, img_width = img.shape[:2]
+        
+        with open(label_path, 'r') as f:
+            labels = [line.strip().split() for line in f if line.strip()]
+        
+        if not labels:
+            print(f"Warning: No labels found in {label_path}")
+            return False
+            
+        traffic_light_labels = [label for label in labels if int(label[0]) in [0, 1, 2]]
+        
+        if not traffic_light_labels:
+            return False
+            
+        areas = []
+        for label in traffic_light_labels:
+            class_id, x_center, y_center, width, height = map(float, label)
+            area = width * height
+            areas.append((area, label))
+        
+        areas.sort(reverse=True)
+        
+        class_id, x_center, y_center, width, height = map(float, areas[0][1])
+        
+        x_center_px = int(x_center * img_width)
+        y_center_px = int(y_center * img_height)
+        width_px = int(width * img_width)
+        height_px = int(height * img_height)
+        
+        crop_width = max(min_crop_size, int(width_px * padding_factor))
+        crop_height = max(min_crop_size, int(height_px * padding_factor))
+        
+        crop_width = min(crop_width, max_crop_size)
+        crop_height = min(crop_height, max_crop_size)
+        
+        x_min = max(0, x_center_px - crop_width // 2)
+        y_min = max(0, y_center_px - crop_height // 2)
+        
+        if x_min + crop_width > img_width:
+            x_min = max(0, img_width - crop_width)
+        if y_min + crop_height > img_height:
+            y_min = max(0, img_height - crop_height)
+        
+        x_max = min(img_width, x_min + crop_width)
+        y_max = min(img_height, y_min + crop_height)
+        
+        actual_width = x_max - x_min
+        actual_height = y_max - y_min
+        
+        cropped_img = img[y_min:y_max, x_min:x_max]
+        
+        new_labels = []
+        for label in labels:
+            class_id, x_center, y_center, width, height = map(float, label)
+            
+            orig_x_center_px = int(x_center * img_width)
+            orig_y_center_px = int(y_center * img_height)
+            orig_width_px = int(width * img_width)
+            orig_height_px = int(height * img_height)
+            
+            new_x_center_px = orig_x_center_px - x_min
+            new_y_center_px = orig_y_center_px - y_min
+            
+            if (new_x_center_px + orig_width_px / 2 <= 0 or 
+                new_x_center_px - orig_width_px / 2 >= actual_width or
+                new_y_center_px + orig_height_px / 2 <= 0 or
+                new_y_center_px - orig_height_px / 2 >= actual_height):
+                continue
+            
+            new_x_center = new_x_center_px / actual_width
+            new_y_center = new_y_center_px / actual_height
+            new_width = min(orig_width_px / actual_width, 1.0)  # Cap at 1.0
+            new_height = min(orig_height_px / actual_height, 1.0)  # Cap at 1.0
+            
+            new_x_center = max(0, min(1, new_x_center))
+            new_y_center = max(0, min(1, new_y_center))
+            
+            new_labels.append(f"{int(class_id)} {new_x_center} {new_y_center} {new_width} {new_height}")
+        
+        cv.imwrite(output_img_path, cropped_img)
+        
+        with open(output_label_path, 'w') as f:
+            f.write('\n'.join(new_labels))
+        
+        return True
+    
+    except Exception as e:
+        print(f"Error processing {img_path}: {e}")
+        return False
+
+
 print(f"\nSampling {SAMPLE_SIZE} images with class balance...")
 if len(train_imgs) > SAMPLE_SIZE:
     sampled_train_imgs = balance_sample(train_imgs, SAMPLE_SIZE)
@@ -138,37 +223,78 @@ else:
     print(f"Warning: Requested {SAMPLE_SIZE} samples but only {len(train_imgs)} are available.")
     sampled_train_imgs = train_imgs
 
-# Copy sampled training images and their labels
-print("Copying sampled training images and labels...")
+print("Processing and cropping training images around traffic lights...")
+successful_crops = 0
+failed_crops = 0
+
 for img_path in tqdm(sampled_train_imgs):
-    # Copy image
     img_filename = os.path.basename(img_path)
+    base_name = os.path.splitext(img_filename)[0]
+    
+    label_path = os.path.join(TARGET_DIR, "labels", "train", f"{base_name}.txt")
     dest_img_path = os.path.join(SAMPLED_DIR, "images", "train", img_filename)
-    shutil.copy2(img_path, dest_img_path)
+    dest_label_path = os.path.join(SAMPLED_DIR, "labels", "train", f"{base_name}.txt")
+    
+    if not os.path.exists(label_path):
+        failed_crops += 1
+        continue
+    
+    success = crop_around_traffic_lights(
+        img_path, 
+        label_path, 
+        dest_img_path, 
+        dest_label_path,
+        padding_factor=4.0,
+        min_crop_size=320,
+        max_crop_size=640
+    )
+    
+    if success:
+        successful_crops += 1
+    else:
+        shutil.copy2(img_path, dest_img_path)
+        if os.path.exists(label_path):
+            shutil.copy2(label_path, dest_label_path)
+        failed_crops += 1
 
-    # Copy corresponding label
-    label_filename = os.path.splitext(img_filename)[0] + ".txt"
-    src_label_path = os.path.join(TARGET_DIR, "labels", "train", label_filename)
-    if os.path.exists(src_label_path):
-        dest_label_path = os.path.join(SAMPLED_DIR, "labels", "train", label_filename)
-        shutil.copy2(src_label_path, dest_label_path)
+print(f"Training data processing complete: {successful_crops} successful crops, {failed_crops} fallbacks to original images")
 
-# Copy all validation images and labels
-print("Copying validation images and labels...")
+print("Processing and cropping validation images around traffic lights...")
+val_successful_crops = 0
+val_failed_crops = 0
+
 for img_path in tqdm(val_imgs):
-    # Copy image
     img_filename = os.path.basename(img_path)
+    base_name = os.path.splitext(img_filename)[0]
+    
+    label_path = os.path.join(TARGET_DIR, "labels", "val", f"{base_name}.txt")
     dest_img_path = os.path.join(SAMPLED_DIR, "images", "val", img_filename)
-    shutil.copy2(img_path, dest_img_path)
+    dest_label_path = os.path.join(SAMPLED_DIR, "labels", "val", f"{base_name}.txt")
+    
+    if not os.path.exists(label_path):
+        val_failed_crops += 1
+        continue
+    
+    success = crop_around_traffic_lights(
+        img_path, 
+        label_path, 
+        dest_img_path, 
+        dest_label_path,
+        padding_factor=4.0,
+        min_crop_size=320,
+        max_crop_size=640
+    )
+    
+    if success:
+        val_successful_crops += 1
+    else:
+        shutil.copy2(img_path, dest_img_path)
+        if os.path.exists(label_path):
+            shutil.copy2(label_path, dest_label_path)
+        val_failed_crops += 1
 
-    # Copy corresponding label
-    label_filename = os.path.splitext(img_filename)[0] + ".txt"
-    src_label_path = os.path.join(TARGET_DIR, "labels", "val", label_filename)
-    if os.path.exists(src_label_path):
-        dest_label_path = os.path.join(SAMPLED_DIR, "labels", "val", label_filename)
-        shutil.copy2(src_label_path, dest_label_path)
+print(f"Validation data processing complete: {val_successful_crops} successful crops, {val_failed_crops} fallbacks to original images")
 
-# Verify sampled dataset
 sampled_train_imgs = glob.glob(os.path.join(SAMPLED_DIR, "images", "train", "*.jpg"))
 sampled_val_imgs = glob.glob(os.path.join(SAMPLED_DIR, "images", "val", "*.jpg"))
 sampled_train_labels = glob.glob(os.path.join(SAMPLED_DIR, "labels", "train", "*.txt"))
@@ -178,7 +304,6 @@ print(f"\nSampled dataset created with {len(sampled_train_imgs)} training images
 print(f"Sampled training labels: {len(sampled_train_labels)}")
 print(f"Sampled validation labels: {len(sampled_val_labels)}")
 
-# Create dataset.yaml for the sampled dataset
 dataset_yaml_path = os.path.join(SAMPLED_DIR, "dataset.yaml")
 with open(dataset_yaml_path, "w") as f:
     f.write(f"train: ./images/train\n")
@@ -188,11 +313,9 @@ with open(dataset_yaml_path, "w") as f:
 
 print(f"Created dataset.yaml at {dataset_yaml_path}")
 
-# Initialize YOLOv8 model
 print("\nInitializing YOLOv8 model...")
 model = YOLO(YOLO_MODEL_SIZE)
 
-# Keep Colab from disconnecting
 from IPython.display import display, Javascript
 def keep_alive():
     display(Javascript('''
@@ -203,14 +326,11 @@ def keep_alive():
     setInterval(ClickConnect, 60000)
     '''))
 
-# Start training with the sampled dataset
 print("\nStarting training on sampled dataset...")
 keep_alive()
 
-# Change working directory to sampled dataset
 os.chdir(SAMPLED_DIR)
 
-# ✅ IMPROVED training parameters
 results = model.train(
     data=dataset_yaml_path,
     epochs=EPOCHS,
@@ -218,40 +338,37 @@ results = model.train(
     imgsz=IMG_SIZE,
     batch=BATCH_SIZE,
     name='yolo_traffic_light_detector',
-    patience=15,  # More patience before stopping
+    patience=15,
     save=True,
     device=device,
     cache=False,
     amp=True,
-    rect=True,  # ✅ ADDED for better batch efficiency
+    rect=True,
     plots=True,
-    augment=True,  # ✅ ENABLED augmentation (was False before)
+    augment=True,
     close_mosaic=10,
-    overlap_mask=True,  # ✅ ADDED for better mask overlaps
-    cos_lr=True,  # ✅ ADDED cosine learning rate
+    overlap_mask=True,
+    cos_lr=True,
     pretrained=True,
     seed=42,
     profile=True,
     verbose=True,
-    mosaic=0.8,  # ✅ ADDED explicit mosaic augmentation
-    mixup=0.1,  # ✅ ADDED mixup augmentation
-    copy_paste=0.1,  # ✅ ADDED copy-paste augmentation
-    degrees=10.0,  # ✅ ADDED rotation augmentation
-    scale=0.5,  # ✅ ADDED scale augmentation
+    mosaic=0.8,
+    mixup=0.1,
+    copy_paste=0.1,
+    degrees=10.0,
+    scale=0.5,
     save_period=10
 )
 
-# Validate the model with lower confidence threshold to improve recall
 print("\nValidating trained model...")
 metrics = model.val(
     data=dataset_yaml_path,
-    conf=CONF_THRESHOLD  # ⬇️ LOWERED from 0.25
+    conf=CONF_THRESHOLD
 )
 
-# Get best model path
 best_model_path = os.path.join("runs", "detect", "yolo_traffic_light_detector", "weights", "best.pt")
 
-# ✅ FIXED F1 calculation
 def evaluate_detection_model(model_path, data_yaml, conf_threshold=CONF_THRESHOLD, iou_threshold=0.5, save_dir="metrics"):
     os.makedirs(save_dir, exist_ok=True)
 
@@ -272,7 +389,6 @@ def evaluate_detection_model(model_path, data_yaml, conf_threshold=CONF_THRESHOL
         "mAP50-95": float(metrics.box.map),
         "precision": float(metrics.box.mp),
         "recall": float(metrics.box.mr),
-        # ✅ FIXED F1 calculation to use the proper precision/recall formula
         "f1": float(2 * metrics.box.mp * metrics.box.mr / (metrics.box.mp + metrics.box.mr + 1e-10)),
         "conf_threshold": conf_threshold,
         "iou_threshold": iou_threshold,
@@ -304,17 +420,15 @@ def evaluate_detection_model(model_path, data_yaml, conf_threshold=CONF_THRESHOL
 
     return results
 
-# Evaluate model performance with lower confidence threshold
 print("\nEvaluating model performance...")
 evaluation_results = evaluate_detection_model(
     model_path=best_model_path,
     data_yaml=dataset_yaml_path,
-    conf_threshold=CONF_THRESHOLD,  # ⬇️ LOWERED
+    conf_threshold=CONF_THRESHOLD,
     iou_threshold=0.5,
     save_dir="/content/detection_metrics"
 )
 
-# Save to Google Drive
 try:
     drive_model_path = "/content/drive/MyDrive/traffic_light_detection_yolo/best_model.pt"
     os.makedirs(os.path.dirname(drive_model_path), exist_ok=True)
@@ -323,7 +437,6 @@ try:
 except Exception as e:
     print(f"Could not save to Drive: {e}")
 
-# Download model and results
 print("\nDownloading model to your computer...")
 files.download(best_model_path)
 
