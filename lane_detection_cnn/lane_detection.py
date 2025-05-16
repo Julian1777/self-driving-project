@@ -24,9 +24,11 @@ os.makedirs(IMAGES_DIR, exist_ok=True)
 os.makedirs(ANNOTATIONS_DIR, exist_ok=True)
  
 
-IMG_SIZE = (224, 224)
+IMG_SIZE = (512, 256)
 INPUT_SHAPE = (IMG_SIZE[0], IMG_SIZE[1], 3)
 BATCH_SIZE = 16
+SHUFFLE_BUFFER_SIZE = 1000
+POS_WEIGHT = 67
 SEED = 123
 EPOCHS = 30
 
@@ -46,17 +48,34 @@ def iou_metric(y_true, y_pred):
     
     return iou
 
-def dice_loss(y_true, y_pred):
-    smooth = 1.0
-    y_true_f = tf.reshape(y_true, [-1])
-    y_pred_f = tf.reshape(y_pred, [-1])
-    intersection = tf.reduce_sum(y_true_f * y_pred_f)
-    return 1 - (2. * intersection + smooth) / (tf.reduce_sum(y_true_f) + tf.reduce_sum(y_pred_f) + smooth)
+def weighted_binary_crossentropy(y_true, y_pred, pos_weight=POS_WEIGHT):
+    y_pred = tf.clip_by_value(y_pred, tf.keras.backend.epsilon(), 1 - tf.keras.backend.epsilon())
+    
+    pos_loss = -y_true * tf.math.log(y_pred) * pos_weight
+    neg_loss = -(1 - y_true) * tf.math.log(1 - y_pred)
+    
+    return tf.reduce_mean(pos_loss + neg_loss)
 
-def combined_loss(y_true, y_pred):
-    bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    dice = dice_loss(y_true, y_pred)
+def weighted_dice_loss(y_true, y_pred, pos_weight=POS_WEIGHT):
+    smooth = 1.0
+    
+    weighted_y_true = y_true * pos_weight
+    
+    y_true_f = tf.reshape(weighted_y_true, [-1])
+    y_pred_f = tf.reshape(y_pred, [-1])
+    
+    intersection = tf.reduce_sum(y_true_f * y_pred_f)
+    weighted_sum = tf.reduce_sum(y_true_f) + tf.reduce_sum(y_pred_f)
+    
+    return 1 - (2. * intersection + smooth) / (weighted_sum + smooth)
+
+def combined_loss(y_true, y_pred, pos_weight=POS_WEIGHT):
+    bce = weighted_binary_crossentropy(y_true, y_pred, pos_weight)
+    
+    dice = weighted_dice_loss(y_true, y_pred, pos_weight)
+    
     return 0.5 * bce + 0.5 * dice
+
 
 def visualize_predictions(model, dataset, num_images=3):
     if isinstance(dataset, tf.data.Dataset):
@@ -134,7 +153,20 @@ def load_image_mask_pair(image_path, mask_path):
 
     return image, mask
 
-def get_dataset(images_dir, masks_dir):
+def augment_data(image, mask):
+    if tf.random.uniform(()) > 0.5:
+        image = tf.image.flip_left_right(image)
+        mask = tf.image.flip_left_right(mask)
+    
+    image = tf.image.random_brightness(image, 0.2)
+    
+    image = tf.image.random_contrast(image, 0.8, 1.2)
+    
+    image = tf.clip_by_value(image, 0.0, 1.0)
+    
+    return image, mask
+
+def get_dataset(images_dir, masks_dir, augment=False):
     image_paths = sorted([
         os.path.join(images_dir, f) 
         for f in os.listdir(images_dir) 
@@ -150,11 +182,12 @@ def get_dataset(images_dir, masks_dir):
     dataset = tf.data.Dataset.from_tensor_slices((image_paths, mask_paths))
     dataset = dataset.map(load_image_mask_pair, num_parallel_calls=tf.data.AUTOTUNE)
 
+    if augment:
+        dataset = dataset.map(augment_data, num_parallel_calls=tf.data.AUTOTUNE)
+
     return dataset
 
-def process_dataset():
-
-    def draw_lane_mask(anno_path, image_shape):
+def draw_lane_mask(anno_path, image_shape, thickness=18):
         mask = np.zeros(image_shape[:2], dtype=np.uint8)  # H x W
         with open(anno_path, 'r') as f:
             lines = f.readlines()
@@ -162,8 +195,10 @@ def process_dataset():
                 coords = list(map(float, line.strip().split()))
                 points = [(int(coords[i]), int(coords[i+1])) for i in range(0, len(coords), 2)]
                 for i in range(1, len(points)):
-                    cv.line(mask, points[i-1], points[i], color=255, thickness=2)
+                    cv.line(mask, points[i-1], points[i], color=255, thickness=thickness)
         return mask
+
+def process_dataset():
 
     dataset_folders = [
         "driver_161_90frame",
@@ -244,51 +279,80 @@ def process_dataset():
         "count": img_count
     }
 
+def generate_masks_only():
+    print("Generating masks from existing images and annotations...")
+    
+    os.makedirs(MASKS_DIR, exist_ok=True)
+    
+    image_files = [f for f in os.listdir(IMAGES_DIR) if f.endswith(('.jpg', '.png'))]
+    
+    total_images = len(image_files)
+    print(f"Found {total_images} images. Generating masks...")
+    
+    for i, img_file in enumerate(tqdm(image_files, desc="Generating masks")):
+        img_path = os.path.join(IMAGES_DIR, img_file)
+        
+        img_basename, img_ext = os.path.splitext(img_file)
+        img_number = img_basename.split('_')[-1]
+        
+        anno_file = f"img_{img_number}_anno.txt"
+        anno_path = os.path.join(ANNOTATIONS_DIR, anno_file)
+        
+        if not os.path.exists(anno_path):
+            print(f"Warning: Annotation not found for {img_file}, skipping...")
+            continue
+        
+        img = cv.imread(img_path)
+        
+        mask = draw_lane_mask(anno_path, img.shape)
+        mask = cv.resize(mask, IMG_SIZE)
+        
+        mask_output_path = os.path.join(MASKS_DIR, f"img_{img_number}.png")
+        cv.imwrite(mask_output_path, mask)
+        
+        if (i + 1) % 100 == 0:
+            print(f"Processed {i + 1}/{total_images} masks")
+    
+    masks_count = len(os.listdir(MASKS_DIR))
+    print(f"Mask generation complete. Created {masks_count} masks.")
 
 def create_lane_segmenation_model(input_shape=INPUT_SHAPE):
-    # More reliable model without shape issues
     inputs = tf.keras.layers.Input(shape=input_shape)
     
-    # Use MobileNetV2 as backbone
-    base_model = tf.keras.applications.MobileNetV2(
+    base_model = tf.keras.applications.EfficientNetB0(
         input_tensor=inputs,
         include_top=False, 
         weights='imagenet'
     )
-    base_model.trainable = False
     
-    # Encoder path
+    backbone = tf.keras.Model(inputs=base_model.input, outputs=base_model.output, name='efficientnet_backbone')
+    backbone.trainable = False
+    
     # Get the output of the backbone
-    encoder = base_model.output
+    x = backbone.output
     
-    # Decoder path - Simple upsampling without skip connections
-    # This is guaranteed to work without shape issues
-    
-    # Start with a 10×10 bottleneck (size may vary based on input)
-    x = encoder
-    
-    # Series of upsampling blocks to reach original resolution
-    # First upsampling: 10×10 -> 20×20
+    # Decoder path - Simple upsampling
+    # First upsampling: ~7×7 -> ~14×14 
     x = layers.Conv2D(256, 3, padding='same', activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.UpSampling2D(2)(x)
     
-    # Second upsampling: 20×20 -> 40×40
+    # Second upsampling: ~14×14 -> ~28×28
     x = layers.Conv2D(128, 3, padding='same', activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.UpSampling2D(2)(x)
     
-    # Third upsampling: 40×40 -> 80×80
+    # Third upsampling: ~28×28 -> ~56×56
     x = layers.Conv2D(64, 3, padding='same', activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.UpSampling2D(2)(x)
     
-    # Fourth upsampling: 80×80 -> 160×160
+    # Fourth upsampling: ~56×56 -> ~112×112
     x = layers.Conv2D(32, 3, padding='same', activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.UpSampling2D(2)(x)
     
-    # Final upsampling: 160×160 -> 320×320
+    # Final upsampling: ~112×112 -> ~224×224
     x = layers.Conv2D(16, 3, padding='same', activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.UpSampling2D(2)(x)
@@ -298,28 +362,45 @@ def create_lane_segmenation_model(input_shape=INPUT_SHAPE):
     
     # Create model
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
-    return model
+    return model, backbone
 
 lane_images_path = os.path.join(IMAGES_DIR)
 
 image_files = [f for f in os.listdir(lane_images_path) if f.endswith(('.jpg', '.png'))]
-mask_files = [f for f in os.listdir(MASKS_DIR) if f.endswith('.png')]
-annotaion_files = [f for f in os.listdir(ANNOTATIONS_DIR) if f.endswith('.txt')]
+annotation_files = [f for f in os.listdir(ANNOTATIONS_DIR) if f.endswith('.txt')]
+
+masks_exist = os.path.exists(MASKS_DIR) and len(os.listdir(MASKS_DIR)) > 0
+masks_complete = masks_exist and len(os.listdir(MASKS_DIR)) == len(image_files)
 
 print(f"Lane images folder: {lane_images_path} contains {len(image_files)} images.")
-print(f"Annotations folder: {ANNOTATIONS_DIR} contains {len(annotaion_files)} annotaions.")
-print(f"Masks folder: {MASKS_DIR} contains {len(mask_files)} annotaions.")
+print(f"Annotations folder: {ANNOTATIONS_DIR} contains {len(annotation_files)} annotations.")
 
-if os.path.exists(lane_images_path) and os.path.exists(ANNOTATIONS_DIR) and len(image_files) == len(mask_files) and len(mask_files) > 0:
-    print(f"Dataset already processed. Found {len(image_files)} images and {len(mask_files)} masks.")
-    processed_data = {
-        "base_dir": CULANE_DIR,
-        "images_dir": IMAGES_DIR,
-        "annotations_dir": ANNOTATIONS_DIR,
-        "count": len(image_files)
-    }
+if masks_exist:
+    mask_files = [f for f in os.listdir(MASKS_DIR) if f.endswith('.png')]
+    print(f"Masks folder: {MASKS_DIR} contains {len(mask_files)} masks.")
+
+if len(image_files) > 0 and len(annotation_files) > 0:
+    if masks_complete:
+        print(f"Dataset already processed. Found {len(image_files)} images and {len(mask_files)} masks.")
+        processed_data = {
+            "base_dir": CULANE_DIR,
+            "images_dir": IMAGES_DIR,
+            "annotations_dir": ANNOTATIONS_DIR,
+            "count": len(image_files)
+        }
+    else:
+        print("Images and annotations exist, but masks are missing or incomplete.")
+        print("Generating only the masks...")
+        generate_masks_only()
+        mask_files = [f for f in os.listdir(MASKS_DIR) if f.endswith('.png')]
+        processed_data = {
+            "base_dir": CULANE_DIR,
+            "images_dir": IMAGES_DIR,
+            "annotations_dir": ANNOTATIONS_DIR,
+            "count": len(image_files)
+        }
 else:
-    print("Running dataset processing...")
+    print("Images or annotations missing. Running complete dataset processing...")
     processed_data = process_dataset()
     
 
@@ -334,15 +415,15 @@ train_size = int(0.8 * dataset_size)
 val_size = int(0.1 * dataset_size)
 test_size = dataset_size - train_size - val_size
 
-full_dataset = full_dataset.shuffle(buffer_size=dataset_size, reshuffle_each_iteration=False)
+full_dataset = full_dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE, reshuffle_each_iteration=False)
 
 train_ds = full_dataset.take(train_size)
 val_ds = full_dataset.skip(train_size).take(val_size)
 test_ds = full_dataset.skip(train_size + val_size)
 
-train_ds = train_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
-val_ds = val_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
-test_ds = test_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+train_ds = get_dataset(IMAGES_DIR, MASKS_DIR, augment=True).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+val_ds = get_dataset(IMAGES_DIR, MASKS_DIR, augment=False).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+test_ds = get_dataset(IMAGES_DIR, MASKS_DIR, augment=False).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
 
 print(f"Train dataset size: {len(train_ds)} batches")
@@ -360,14 +441,15 @@ if os.path.exists(MODEL_PATH):
 else:
     print("No existing model found. Training a new model.")
 
-    model = create_lane_segmenation_model(input_shape=INPUT_SHAPE)
+    model, backbone = create_lane_segmenation_model(input_shape=INPUT_SHAPE)
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
         "best_model.h5",
         monitor="val_iou_metric",
         mode="max",
         save_best_only=True,
-        verbose=1
+        verbose=1,
+        save_weights_only=True
     )
     
     early_stopping = EarlyStopping(
@@ -387,7 +469,7 @@ else:
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), 
-        loss=combined_loss, 
+        loss=lambda y_true, y_pred: combined_loss(y_true, y_pred, pos_weight=30.0), 
         metrics=[iou_metric]
     )
 
@@ -400,24 +482,49 @@ else:
     )
 
     print("Phase 2: Fine-tuning backbone layers")
-    backbone = model.layers[1]
-    backbone.trainable = True
+    backbone = None
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.Model) and layer.name == 'efficientnet_backbone':
+            backbone = layer
+            print(f"Found backbone model: {backbone.name}")
+            break
 
-    for layer in backbone.layers[:100]:  # Freeze first 100 layers
-        layer.trainable = False
+    if backbone is None:
+        print("Could not find backbone model by name, attempting to find by type...")
+        for layer in model.layers:
+            if isinstance(layer, tf.keras.Model):
+                backbone = layer
+                print(f"Found model layer: {backbone.name}")
+                break
 
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),  # 10x smaller
-        loss=combined_loss,
-        metrics=[iou_metric]
-    )
+    if backbone is None:
+        print("WARNING: No backbone found. Skipping fine-tuning phase.")
+    else:
+        backbone.trainable = True
+        
+        print(f"Backbone has {len(backbone.layers)} layers")
+        
+        if len(backbone.layers) >= 100:
+            for layer in backbone.layers[:100]:
+                layer.trainable = False
+        else:
+            freeze_count = int(len(backbone.layers) * 0.3)
+            for layer in backbone.layers[:freeze_count]:
+                layer.trainable = False
+            print(f"Froze first {freeze_count} of {len(backbone.layers)} layers")
 
-    history_phase2 = model.fit(
-        train_ds,
-        validation_data=val_ds,
-        epochs=15,  # Additional epochs with fine-tuning
-        callbacks=[checkpoint, reduce_lr]
-    )
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+            loss=lambda y_true, y_pred: combined_loss(y_true, y_pred, pos_weight=20.0),
+            metrics=[iou_metric]
+        )
+
+        history_phase2 = model.fit(
+            train_ds,
+            validation_data=val_ds,
+            epochs=15,
+            callbacks=[checkpoint, reduce_lr]
+        )
 
     combined_history = {}
     for key in history_phase1.history:
@@ -426,7 +533,6 @@ else:
     model.save(MODEL_PATH)
     visualize_predictions(model, val_ds)
 
-    # Plotting loss, accuracy, and IoU for both train and validation sets
     plt.figure(figsize=(16, 6))
 
     # Loss

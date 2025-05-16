@@ -2,6 +2,7 @@
 *.mp4
 *.h5
 *.zip
+*.pt
 lane_detection_cnn/dataset/
 traffic-sign/dataset/
 traffic_lights/dataset

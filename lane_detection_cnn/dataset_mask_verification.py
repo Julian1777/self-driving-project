@@ -72,7 +72,7 @@ def visualize_annotations(image_path, anno_path):
     
     return visualization
 
-ANNO_PATH = "/Users/jstamm2024/Documents/GitHub/learning-tf/lane_detection_cnn/dataset/culane/annotations/img_1_anno.txt"
-IMG_PATH = "/Users/jstamm2024/Documents/GitHub/learning-tf/lane_detection_cnn/dataset/culane/images/img_1.jpg"
+ANNO_PATH = "c:/Users/user/Documents/github/self-driving-car-simulation/lane_detection_cnn/dataset/culane/annotations/img_400_anno.txt"
+IMG_PATH = "c:/Users/user/Documents/github/self-driving-car-simulation/lane_detection_cnn/dataset/culane/images/lane/img_400.jpg"
 print("Verifying lane annotations...")
 visualize_annotations(IMG_PATH, ANNO_PATH)
