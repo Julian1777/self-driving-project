@@ -39,15 +39,19 @@ A computer vision system for autonomous driving tasks. This project uses traditi
 - **CU Lane Dataset** for lane segmentation
 - **LISA Traffic Sign Dataset** for sign classification
 - **DLDT / LISA** for traffic light classification & detection
+- **Mapillary** for sign detection
+- **BDD** for vehicle and pedestrian detection
 
 ## 📊 Results
 
-| Model        | Task                               | Accuracy / IoU | Dataset & Size         | Epochs   |
+| Model        | Task                               | Accuracy / IoU | Dataset   |    Size    | Epochs   |
 |--------------|------------------------------------|----------------|------------------------|----------|
-| CNN          | Sign Classification                | 89%            | x                      |x         |
-| CNN          | Traffic light Classification       | 60%            | x                      |x         |
-| YOLOv8       | Traffic light Light Detection      | mAP x          | trained on xk images   |x         |
-| SCNN         | Lane Detection                     | IoU x          | trained for x epochs   |x         |
+| CNN          | Sign Classification                | 89%            | GTRSB     |            |20        |
+| Yolov8       | Sign Detection                     | 89%            | Mapillary |            |50        |
+| Yolov8       | Traffic light Light Detection      | mAP x          |           |            |50        |
+| SCNN         | Lane Detection                     | IoU x          | Culane    |            |x         |
+| SCNN         | Vehicle & Pedestrian detection     | IoU x          | BDD       | 100k       |30        |
+
 
 ## 🛣️ Roadmap
 

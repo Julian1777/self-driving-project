@@ -28,9 +28,9 @@ def detect_vehicles_pedestrians(frame, model=None):
             model = YOLO(DETECTION_MODEL_PATH)
             print(f"Warning: Loading vehicle detection model from scratch - slower!")
 
-    target_classes = ["car", "truck", "bus", "motorcycle", "bicycle", "pedestrian"]
+    target_classes = ["car", "truck", "bus", "motor", "bike", "person"]
 
-    results = model(frame, conf=0.25)
+    results = model(frame, conf=0.30)
 
     detections = []
 

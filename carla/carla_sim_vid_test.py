@@ -11,9 +11,18 @@ from queue import Queue
 VIDEO_PATH = os.path.join("test_videos", "test_video_ams_cut.mp4")
 FRAME_SKIP = 2
 MODELS = {}
+last_lane_update = 0
+last_light_update = 0
+last_sign_update = 0
+last_vehicle_update = 0
+update_interval = 5
 window_width, window_height = 800, 600
 frame_count = 0
 
+vehicle_window = None
+lane_hough_window = None
+sign_window = None
+light_window = None
 
 root = tk.Tk()
 root.title("Carla Self-Driving Car Simulation")
@@ -36,7 +45,7 @@ lane_hough_window.geometry(f"{window_width}x{window_height}+{window_width}+0")
 
 lane_ml_window = tk.Toplevel(root)
 lane_ml_window.title("Lane Detection using Machine Learning")
-lane_ml_window.geometry(f"{window_width}x{window_height}+{window_width}+0")
+lane_ml_window.geometry(f"{window_width}x{window_height}+{2*window_width}+0")
 
 sign_window = tk.Toplevel(root)
 sign_window.title("Sign Detection")
@@ -45,6 +54,10 @@ sign_window.geometry(f"{window_width}x{window_height}+0+{window_height}")
 light_window = tk.Toplevel(root)
 light_window.title("Traffic Light Detection")
 light_window.geometry(f"{window_width}x{window_height}+{window_width}+{window_height}")
+
+vehicle_window = tk.Toplevel(root)
+vehicle_window.title("Vehicle & Pedestrian Detection")
+vehicle_window.geometry(f"{window_width}x{window_height}+{2*window_width}+{window_height}")
 
 main_canvas = tk.Canvas(root, width=window_width, height=window_height)
 main_canvas.pack(fill="both", expand=True)
@@ -60,10 +73,6 @@ sign_canvas.pack(fill="both", expand=True)
 
 light_canvas = tk.Canvas(light_window, width=window_width, height=window_height)
 light_canvas.pack(fill="both", expand=True)
-
-vehicle_window = tk.Toplevel(root)
-vehicle_window.title("Vehicle & Pedestrian Detection")
-vehicle_window.geometry(f"{window_width}x{window_height}+0+{2*window_height}")
 
 vehicle_canvas = tk.Canvas(vehicle_window, width=window_width, height=window_height)
 vehicle_canvas.pack(fill="both", expand=True)
@@ -81,7 +90,8 @@ light_detect_photo = None
 light_class_photo = None
 vehicle_ped_photo = None
 
-def numpy_to_tkinter(array):
+photo_refs = {}
+def numpy_to_tkinter(array, window_id="main"):
     if array.dtype != np.uint8:
         array = (array * 255).astype(np.uint8)
     
@@ -90,10 +100,12 @@ def numpy_to_tkinter(array):
 
     img = Image.fromarray(array)
     photo = ImageTk.PhotoImage(image=img)
+
+    photo_refs[window_id] = photo
+    
     return photo
 
 def load_all_models():
-    """Load all models once at startup"""
     try:
         print("Loading models, please wait...")
         
@@ -125,7 +137,8 @@ def load_all_models():
         return False
 
 def show_image(frame):
-    global main_photo, lane_ml_photo, sign_photo, light_detect_photo, light_class_photo, vehicle_ped_photo, frame_count
+    global main_photo, lane_ml_photo, sign_photo, light_detect_photo, light_class_photo, vehicle_ped_photo
+    global frame_count, last_lane_update, last_sign_update, last_light_update, last_vehicle_update
 
     frame_count += 1
     
@@ -134,7 +147,7 @@ def show_image(frame):
     main_photo = numpy_to_tkinter(rgb_image)
     main_canvas.create_image(0, 0, image=main_photo, anchor="nw")
     
-    if frame_count % 5 == 0:
+    if frame_count % 5 == 0 and frame_count - last_lane_update >= update_interval:
         try:
             lane_results_hough = detect_lanes_hough(rgb_image)
             lane_image_hough = rgb_image.copy()
@@ -147,8 +160,8 @@ def show_image(frame):
             cv.putText(lane_image_hough, f"Frame: {frame_count}", (10, 30), 
                       cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                       
-            lane_hough_photo = numpy_to_tkinter(lane_image_hough)
-            lane_hough_canvas.create_image(0, 0, image=lane_hough_photo, anchor="nw")
+            lane_hough_photo = numpy_to_tkinter(lane_image_hough, "lane_hough")
+            lane_hough_canvas.create_image(0, 0, image=photo_refs["lane_hough"], anchor="nw")
         except Exception as e:
             print(f"Error in lane_detection_hough: {e}")
 
@@ -170,7 +183,7 @@ def show_image(frame):
     #     except Exception as e:
     #         print(f"Error in lane_detection_ml: {e}")
     
-    elif frame_count % 5 == 2:
+    elif frame_count % 5 == 2 and frame_count - last_sign_update >= update_interval:
         try:
             sign_results = detect_classify_signs(rgb_image)
             sign_image = rgb_image.copy()
@@ -207,12 +220,12 @@ def show_image(frame):
             cv.putText(sign_image, f"Frame: {frame_count}", (10, 30), 
                       cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                       
-            sign_photo = numpy_to_tkinter(sign_image)
-            sign_canvas.create_image(0, 0, image=sign_photo, anchor="nw")
+            sign_photo = numpy_to_tkinter(sign_image, "sign")
+            sign_canvas.create_image(0, 0, image=photo_refs["sign"], anchor="nw")
         except Exception as e:
             print(f"Error in sign_detection: {e}")
     
-    elif frame_count % 5 == 3:
+    elif frame_count % 5 == 3 and frame_count - last_light_update >= update_interval:
         try:
             light_results_detect = detect_class_traffic_lights(rgb_image)
             light_detect_image = rgb_image.copy()
@@ -246,12 +259,14 @@ def show_image(frame):
             cv.putText(light_detect_image, f"Frame: {frame_count}", (10, 30), 
                       cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                       
-            light_detect_photo = numpy_to_tkinter(light_detect_image)
-            light_canvas.create_image(0, 0, image=light_detect_photo, anchor="nw")
+            light_detect_photo = numpy_to_tkinter(light_detect_image, "light")
+            light_canvas.create_image(0, 0, image=photo_refs["light"], anchor="nw")
+
+            last_light_update = frame_count
         except Exception as e:
             print(f"Error in traffic_light_detection: {e}")
 
-    elif frame_count % 5 == 4:
+    elif frame_count % 5 == 4 and frame_count - last_vehicle_update >= update_interval:
         try:
             vehicle_ped_results = detect_vehicles_pedestrians(rgb_image)
             vehicle_ped_image = rgb_image.copy()
@@ -281,13 +296,17 @@ def show_image(frame):
             cv.putText(vehicle_ped_image, f"Frame: {frame_count}", (10, 30),
                         cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            vehicle_ped_photo = numpy_to_tkinter(vehicle_ped_image)
-            vehicle_canvas.create_image(0, 0, image=vehicle_ped_photo, anchor="nw")
+            vehicle_ped_photo = numpy_to_tkinter(vehicle_ped_image, "vehicle")
+            vehicle_canvas.create_image(0, 0, image=photo_refs["vehicle"], anchor="nw")
 
+            last_vehicle_update = frame_count
         except Exception as e:
             print(f"Error in vehicle_pedestrian_detection: {e}")
             
-    # Update the UI
+    lane_hough_window.update()
+    light_window.update()
+    sign_window.update()
+    vehicle_window.update()
     root.update()
     
 
@@ -356,7 +375,12 @@ def reset_video():
 def detect_lanes_hough(frames):
     from lane_detection_hough import lane_detection
 
-    lane_hough_results = lane_detection(frames)
+    print(f"Lane detection input shape: {frames.shape}, dtype: {frames.dtype}")
+
+    bgr_frames = cv.cvtColor(frames, cv.COLOR_RGB2BGR)
+
+    lane_hough_results = lane_detection(bgr_frames)
+    print(f"Got lane results: {lane_hough_results[:2] if lane_hough_results else 'None'}")
 
     return lane_hough_results
 
@@ -370,7 +394,10 @@ def detect_lanes_hough(frames):
 def detect_class_traffic_lights(frames):
     from traffic_light_detect_class import detect_classify_traffic_light
 
-    light_detect_results = detect_classify_traffic_light(frames)
+    bgr_frames = cv.cvtColor(frames, cv.COLOR_RGB2BGR)
+
+    light_detect_results = detect_classify_traffic_light(bgr_frames)
+    print(f"Got traffic light results: {light_detect_results[:2] if light_detect_results else 'None'}")
 
     return light_detect_results
 
@@ -378,16 +405,19 @@ def detect_classify_signs(frames):
     from sign_detection_classification import detect_classify_sign
 
     sign_results = detect_classify_sign(frames)
+    print(f"Got sign results: {sign_results[:2] if sign_results else 'None'}")
 
     return sign_results
 
 def detect_vehicles_pedestrians(frames):
     from vehicle_pedestrian_detection import detect_vehicles_pedestrians
 
-    detection_results = detect_vehicles_pedestrians(frames)
-    print(f"Got vehicle results: {detection_results[:2] if detection_results else 'None'}")
+    print(f"Vehicle detection input shape: {frames.shape}, dtype: {frames.dtype}")
 
-    return detection_results
+    vehicle_ped_results = detect_vehicles_pedestrians(frames)
+    print(f"Got vehicle results: {vehicle_ped_results[:2] if vehicle_ped_results else 'None'}")
+
+    return vehicle_ped_results
 
 if __name__ == "__main__":
     load_all_models()

@@ -5,7 +5,6 @@ from ultralytics import YOLO
 import cv2 as cv
 
 import sys
-import importlib.util
 
 def get_models_dict():
     try:
@@ -19,27 +18,6 @@ def get_models_dict():
 IMG_SIZE = (224, 224)
 LIGHT_MODEL_PATH = os.path.join("model", "traffic_light_detect_class.pt")
 
-def img_preprocessing(image_input):
-    if isinstance(image_input, str):
-        # If it's a file path
-        image = cv.imread(image_input)
-        if image is None:
-            raise ValueError(f"Could not read image from {image_input}")
-    else:
-        image = image_input.copy()
-    
-    if len(image.shape) == 2:  # Grayscale
-        image = cv.cvtColor(image, cv.COLOR_GRAY2RGB)
-    elif image.shape[2] == 4:  # RGBA
-        image = cv.cvtColor(image, cv.COLOR_RGBA2RGB)
-    elif image.shape[2] == 3 and image_input is not str:
-        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-    image = cv.resize(image, IMG_SIZE)
-    image = image / 255.0  # Normalize to [0, 1]
-    
-    image = np.expand_dims(image, axis=0)
-    return image
-
 def detect_classify_traffic_light(frame):
     models_dict = get_models_dict()
     
@@ -50,7 +28,7 @@ def detect_classify_traffic_light(frame):
         print(f"Warning: Loading traffic light model from scratch - slower!")
 
     
-    results = model(frame, conf=0.25)
+    results = model(frame, conf=0.15)
 
     detections = []
 
@@ -64,7 +42,6 @@ def detect_classify_traffic_light(frame):
             confidence = float(box.conf[0])
 
             if "traffic" in class_name.lower() and "light" in class_name.lower():
-                # Determine light state from class name
                 light_state = "unknown"
                 if "red" in class_name.lower():
                     light_state = "red"
@@ -78,4 +55,6 @@ def detect_classify_traffic_light(frame):
                     'class': light_state,
                     'confidence': confidence
                 })
+
+    print(f"Returning {len(detections)} traffic lights: {detections}")
     return detections

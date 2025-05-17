@@ -49,7 +49,7 @@ def filter_lanes(lines, image_width):
 def make_coordinates(image,line_parameters):
     slope,intercept=line_parameters
     y1=image.shape[0]
-    y2=int(y1*0.6)
+    y2=int(y1*0.7)
     x1=int((y1-intercept)/slope)
     x2=int((y2-intercept)/slope)
     return np.array([x1,y1,x2,y2])
