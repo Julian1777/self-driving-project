@@ -6,9 +6,9 @@ import cv2 as cv
 import os
 import threading
 import time
-from queue import Queue
+import queue
 
-VIDEO_PATH = os.path.join("test_videos", "test_video_ams_cut.mp4")
+VIDEO_PATH = os.path.join("test_videos", "ams_driving_cropped.mp4")
 FRAME_SKIP = 2
 MODELS = {}
 last_lane_update = 0
@@ -188,37 +188,45 @@ def show_image(frame):
             sign_results = detect_classify_signs(rgb_image)
             sign_image = rgb_image.copy()
             
-            if sign_results is not None and isinstance(sign_results, (list, tuple, np.ndarray)) and len(sign_results) > 0:
+            if sign_results is not None and len(sign_results) > 0:
                 for sign in sign_results:
                     if isinstance(sign, dict) and 'bbox' in sign:
                         x1, y1, x2, y2 = sign['bbox']
-
-                        if 'classification_confidence' in sign and sign['classification_confidence'] > 0.7:
-                            color = (0, 255, 0)
+                        
+                        if sign.get('verified', False):
+                            color = (0, 255, 0)  # Green for verified signs (both models)
+                        elif 'classification_confidence' in sign and sign['classification_confidence'] > 0.7:
+                            color = (0, 200, 0)  # Lighter green for high confidence
                         elif 'classification_confidence' in sign and sign['classification_confidence'] > 0.4:
-                            color = (0, 255, 255)
+                            color = (0, 255, 255)  # Yellow for medium confidence
                         else:
-                            color = (0, 160, 255)
-
-                        cv.rectangle(sign_image, (x1, y1), (x2, y2), color, 2)
-
+                            color = (0, 160, 255)  # Orange for lower confidence
+                        
+                        thickness = 3 if sign.get('verified', False) else 2
+                        cv.rectangle(sign_image, (x1, y1), (x2, y2), color, thickness)
+                        
                         if 'classification' in sign:
                             class_text = sign['classification']
                             if len(class_text) > 20:
                                 class_text = class_text[:20] + "..."
+                            
                             confidence = sign['classification_confidence']
-                            label = f"{class_text}: {confidence:.2f}"
-
+                            
+                            source_tag = ""
+                            if 'source' in sign:
+                                if sign['source'] == 'sign_model':
+                                    source_tag = " (SM)"
+                                elif sign['source'] == 'vehicle_model':
+                                    source_tag = " (VM)"
+                            
+                            label = f"{class_text}: {confidence:.2f}{source_tag}"
+                            
                             text_size = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-
                             cv.rectangle(sign_image, (x1, y1 - text_size[1] - 5), 
-                                         (x1 + text_size[0], y1), color, -1)
+                                        (x1 + text_size[0], y1), color, -1)
                             
                             cv.putText(sign_image, label, (x1, y1 - 5), 
-                                      cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-
-            cv.putText(sign_image, f"Frame: {frame_count}", (10, 30), 
-                      cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                                    cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
                       
             sign_photo = numpy_to_tkinter(sign_image, "sign")
             sign_canvas.create_image(0, 0, image=photo_refs["sign"], anchor="nw")
@@ -227,44 +235,124 @@ def show_image(frame):
     
     elif frame_count % 5 == 3 and frame_count - last_light_update >= update_interval:
         try:
-            light_results_detect = detect_class_traffic_lights(rgb_image)
-            light_detect_image = rgb_image.copy()
+            thread_image = rgb_image.copy()
             
-            if light_results_detect is not None and isinstance(light_results_detect, (list, tuple, np.ndarray)) and len(light_results_detect) > 0:
-                for light in light_results_detect:
-                    if isinstance(light, dict) and 'bbox' in light:
-                        x1, y1, x2, y2 = light['bbox']
-
-                        if 'class' in light:
-                            if light['class'] == 'red':
-                                color = (0, 0, 255)
-                            elif light['class'] == 'yellow':
-                                color = (0, 255, 255)
-                            elif light['class'] == 'green':
-                                color = (0, 255, 0)
-                            else:
-                                color = (255, 255, 255)
-
-                            cv.rectangle(light_detect_image, (x1, y1), (x2, y2), color, 2)
-
-                            label = f"{light['class']}: {light['confidence']:.2f}"
-                            cv.putText(light_detect_image, label, 
-                                (x1, y1-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                        else:
-                            cv.rectangle(light_detect_image, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            if 'confidence' in light:
-                                cv.putText(light_detect_image, f"Conf: {light['confidence']:.2f}", 
-                                    (x1, y1-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-            
-            cv.putText(light_detect_image, f"Frame: {frame_count}", (10, 30), 
-                      cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                      
-            light_detect_photo = numpy_to_tkinter(light_detect_image, "light")
+            processing_img = thread_image.copy()
+            cv.putText(processing_img, "Processing traffic lights...", (50, 50), 
+                    cv.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+            light_detect_photo = numpy_to_tkinter(processing_img, "light")
             light_canvas.create_image(0, 0, image=photo_refs["light"], anchor="nw")
+            light_window.update()
+            
+            result_queue = queue.Queue()
+            
+            def traffic_light_worker():
+                try:
+                    result = detect_class_traffic_lights(thread_image)
+                    result_queue.put(("success", result))
+                except Exception as e:
+                    print(f"Error in traffic light detection thread: {e}")
+                    result_queue.put(("error", str(e)))
+            
+            worker_thread = threading.Thread(target=traffic_light_worker)
+            worker_thread.daemon = True
+            worker_thread.start()
+            
+            worker_thread.join(timeout=5.0)
+            
+            if worker_thread.is_alive():
+                print("Traffic light detection timed out!")
+                timeout_img = thread_image.copy()
+                cv.putText(timeout_img, "Detection Timeout!", (50, 50), 
+                        cv.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+                light_detect_photo = numpy_to_tkinter(timeout_img, "light")
+                light_canvas.create_image(0, 0, image=photo_refs["light"], anchor="nw")
+                last_light_update = frame_count
+                return
+            
+            if not result_queue.empty():
+                status, light_results_detect = result_queue.get()
+                
+                if status == "success":
+                    light_detect_image = thread_image.copy()
+            
+                    if light_results_detect is not None and isinstance(light_results_detect, (list, tuple, np.ndarray)) and len(light_results_detect) > 0:
+                        for light in light_results_detect:
+                            if isinstance(light, dict) and 'bbox' in light:
+                                x1, y1, x2, y2 = light['bbox']
 
+                                if 'class' in light:
+                                    if light['class'] == 'red':
+                                        color = (0, 0, 255)
+                                    elif light['class'] == 'yellow':
+                                        color = (0, 255, 255)
+                                    elif light['class'] == 'green':
+                                        color = (0, 255, 0)
+                                    else:
+                                        color = (255, 255, 255)
+                                
+                                thickness = 3 if light.get('agreement', False) else 1
+
+                                cv.rectangle(light_detect_image, (x1, y1), (x2, y2), color, thickness)
+                            
+                            confidence_text = f"{light['confidence']:.2f}"
+                            if 'agreement' in light and light['agreement']:
+                                label = f"{light['class']}: {confidence_text} ✓✓"  # Double checkmark for agreement
+                            elif 'source' in light:
+                                if light['source'] == 'traffic_light_model_only':
+                                    label = f"{light['class']}: {confidence_text} (TL)"
+                                elif light['source'] == 'vehicle_model_only':
+                                    label = f"{light['class']}: {confidence_text} (V)"
+                            else:
+                                label = f"{light['class']}: {confidence_text}"
+                            
+                            text_size = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
+                            cv.rectangle(light_detect_image, 
+                                        (x1, y1 - text_size[1] - 5), 
+                                        (x1 + text_size[0], y1), 
+                                        color, -1)
+                            cv.putText(light_detect_image, label, 
+                                    (x1, y1-5), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                            
+                            if 'probabilities' in light:
+                                bar_width = 60
+                                bar_height = 15
+                                bar_x = x2 + 5
+                                bar_y = y1
+                                
+                                cv.rectangle(light_detect_image, 
+                                            (bar_x, bar_y), 
+                                            (bar_x + bar_width, bar_y + bar_height * 3), 
+                                            (50, 50, 50), -1)
+                                
+                                red_height = int(bar_height * light['probabilities']['red'])
+                                cv.rectangle(light_detect_image,
+                                            (bar_x, bar_y),
+                                            (bar_x + bar_width, bar_y + red_height),
+                                            (0, 0, 255), -1)
+                                
+                                yellow_height = int(bar_height * light['probabilities']['yellow'])
+                                cv.rectangle(light_detect_image,
+                                            (bar_x, bar_y + bar_height),
+                                            (bar_x + bar_width, bar_y + bar_height + yellow_height),
+                                            (0, 255, 255), -1)
+                                
+                                green_height = int(bar_height * light['probabilities']['green'])
+                                cv.rectangle(light_detect_image,
+                                            (bar_x, bar_y + 2*bar_height),
+                                            (bar_x + bar_width, bar_y + 2*bar_height + green_height),
+                                            (0, 255, 0), -1)
+            
+                cv.putText(light_detect_image, f"Frame: {frame_count}", (10, 30), 
+                        cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                
+                light_detect_photo = numpy_to_tkinter(light_detect_image, "light")
+                light_canvas.create_image(0, 0, image=photo_refs["light"], anchor="nw")
+                
             last_light_update = frame_count
+                
         except Exception as e:
-            print(f"Error in traffic_light_detection: {e}")
+            print(f"Error in traffic light detection: {e}")
 
     elif frame_count % 5 == 4 and frame_count - last_vehicle_update >= update_interval:
         try:
@@ -392,19 +480,19 @@ def detect_lanes_hough(frames):
 #     return lane_ml_results
 
 def detect_class_traffic_lights(frames):
-    from traffic_light_detect_class import detect_classify_traffic_light
+    from traffic_light_detect_class import combined_traffic_light_detection
 
     bgr_frames = cv.cvtColor(frames, cv.COLOR_RGB2BGR)
 
-    light_detect_results = detect_classify_traffic_light(bgr_frames)
+    light_detect_results = combined_traffic_light_detection(bgr_frames)
     print(f"Got traffic light results: {light_detect_results[:2] if light_detect_results else 'None'}")
 
     return light_detect_results
 
 def detect_classify_signs(frames):
-    from sign_detection_classification import detect_classify_sign
+    from sign_detection_classification import combined_sign_detection_classification
 
-    sign_results = detect_classify_sign(frames)
+    sign_results = combined_sign_detection_classification(frames)
     print(f"Got sign results: {sign_results[:2] if sign_results else 'None'}")
 
     return sign_results

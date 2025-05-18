@@ -4,7 +4,7 @@ import time
 from ultralytics import YOLO
 import random
 
-MODEL_PATH = "best.pt"
+MODEL_PATH = "vehicle_pedestrian_detection.pt"
 VIDEO_PATH = "ams_driving_cropped.mp4"
 
 def process_video():

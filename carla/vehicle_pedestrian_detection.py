@@ -19,7 +19,7 @@ def get_models_dict():
     except:
         return None
 
-def detect_vehicles_pedestrians(frame, model=None):
+def detect_vehicles_pedestrians(frame, model=None, include_traffic_lights=True, include_traffic_signs=True):
     if model is None:
         models_dict = get_models_dict()
         if models_dict is not None and 'vehicle' in models_dict:
@@ -29,6 +29,12 @@ def detect_vehicles_pedestrians(frame, model=None):
             print(f"Warning: Loading vehicle detection model from scratch - slower!")
 
     target_classes = ["car", "truck", "bus", "motor", "bike", "person"]
+
+    if include_traffic_lights:
+        target_classes.extend(["traffic light"])
+
+    if include_traffic_signs:
+        target_classes.extend(["traffic signs"])
 
     results = model(frame, conf=0.30)
 
@@ -47,7 +53,8 @@ def detect_vehicles_pedestrians(frame, model=None):
                 detections.append({
                     'bbox': (x1, y1, x2, y2),
                     'class': class_name,
-                    'confidence': confidence
+                    'confidence': confidence,
+                    'source': 'vehicle_model'
                 })
     
     return detections

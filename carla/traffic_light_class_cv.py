@@ -72,17 +72,12 @@ def analyze_brightness_pattern(image, true_label=None):
     
     return result
 
-def predict_light(image_path):
-    img = cv.imread(image_path)
-    if img is None:
-        return {"error": f"Could not read image: {image_path}"}
-        
-    img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+def classify_traffic_light_crop(image_crop):
+    if image_crop.shape[0] != IMG_SIZE[0] or image_crop.shape[1] != IMG_SIZE[1]:
+        image_crop = cv.resize(image_crop, IMG_SIZE)
     
-    if img.shape[0] != IMG_SIZE[0] or img.shape[1] != IMG_SIZE[1]:
-        img = cv.resize(img, IMG_SIZE)
-    
-    result = analyze_brightness_pattern(img)
+    # Analyze brighness pattern
+    result = analyze_brightness_pattern(image_crop)
     
     return {
         "class": result["predicted_state"],
