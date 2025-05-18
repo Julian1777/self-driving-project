@@ -45,7 +45,7 @@ A computer vision system for autonomous driving tasks. This project uses traditi
 ## 📊 Results
 
 | Model        | Task                               | Accuracy / IoU | Dataset   |    Size    | Epochs   |
-|--------------|------------------------------------|----------------|------------------------|----------|
+|--------------|------------------------------------|----------------|-----------|------------|----------|
 | CNN          | Sign Classification                | 89%            | GTRSB     |            |20        |
 | Yolov8       | Sign Detection                     | 89%            | Mapillary |            |50        |
 | Yolov8       | Traffic light Light Detection      | mAP x          |           |            |50        |
