@@ -41,20 +41,19 @@ def detect_classify_traffic_light(frame):
             class_name = model.names[class_id]
             confidence = float(box.conf[0])
 
-            if "traffic" in class_name.lower() and "light" in class_name.lower():
-                light_state = "unknown"
-                if "red" in class_name.lower():
-                    light_state = "red"
-                elif "yellow" in class_name.lower() or "amber" in class_name.lower():
-                    light_state = "yellow"
-                elif "green" in class_name.lower():
-                    light_state = "green"
-                
-                detections.append({
-                    'bbox': (x1, y1, x2, y2),
-                    'class': light_state,
-                    'confidence': confidence
-                })
+            light_state = class_name.lower()
 
+            if "red" in light_state or "stop" in light_state:
+                light_state = "red"
+            elif "yellow" in light_state or "amber" in light_state:
+                light_state = "yellow"
+            elif "green" in light_state or "go" in light_state:
+                light_state = "green"
+            
+            detections.append({
+                'bbox': (x1, y1, x2, y2),
+                'class': light_state,
+                'confidence': confidence
+            })
     print(f"Returning {len(detections)} traffic lights: {detections}")
     return detections
