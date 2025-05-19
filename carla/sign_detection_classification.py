@@ -73,6 +73,53 @@ def calculate_iou(box1, box2):
 
     return intersection_area / union_area
 
+def classify_sign_crop(sign_crop):
+    try:
+        sign_crop_rgb = cv.cvtColor(sign_crop, cv.COLOR_BGR2RGB)
+        
+        img = cv.resize(sign_crop_rgb, IMG_SIZE)
+        
+        if img.max() > 1.0:
+            img = img / 255.0
+        
+        img = np.expand_dims(img, axis=0)
+        
+        models_dict = get_models_dict()
+        if models_dict is not None and 'sign_classify' in models_dict:
+            classification_model = models_dict['sign_classify']
+        else:
+            classification_model = tf.keras.models.load_model(SIGN_CLASSIFY_MODEL_PATH)
+        
+        pred = classification_model.predict(img, verbose=0)
+        class_idx = np.argmax(pred[0])
+        class_confidence = float(pred[0][class_idx])
+        
+        if 0 <= class_idx < len(class_descriptions):
+            classification = class_descriptions[class_idx]
+        else:
+            classification = f"Class {class_idx}"
+        
+        top_indices = np.argsort(pred[0])[-3:][::-1]
+        print(f"Top 3 predictions for sign:")
+        for i in top_indices:
+            print(f"  {class_descriptions[i]}: {pred[0][i]:.4f}")
+        
+        return {
+            'class': classification,
+            'confidence': class_confidence,
+            'class_index': int(class_idx)
+        }
+        
+    except Exception as e:
+        print(f"Error in classify_sign_crop: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'class': 'Classification Error',
+            'confidence': 0.0,
+            'class_index': -1
+        }
+
 def img_preprocessing(frame):
     img = frame.copy()
     img = cv.resize(img, IMG_SIZE)
@@ -111,17 +158,14 @@ def detect_classify_sign(frame):
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
             
-            if x2 > x1 and y2 > y1:  # Ensure valid crop dimensions
+            if x2 > x1 and y2 > y1:
                 sign_crop = frame[y1:y2, x1:x2]
                 
-                img = cv.resize(sign_crop, IMG_SIZE)
-                img = img / 255.0
-                img = np.expand_dims(img, axis=0)
-                
                 try:
-                    pred = classification_model.predict(img, verbose=0)
-                    class_idx = np.argmax(pred[0])
-                    class_confidence = float(pred[0][class_idx])
+                    classification_result = classify_sign_crop(sign_crop)
+                    classification = classification_result['class']
+                    class_confidence = classification_result['confidence']
+                    class_idx = classification_result['class_index']
                     
                     if 0 <= class_idx < len(class_descriptions):
                         classification = class_descriptions[class_idx]
@@ -161,7 +205,10 @@ def combined_sign_detection_classification(frame):
     vehicle_model_sign_detections = []
 
     for detection in vehicle_model_detections:
-        if 'traffic sign' in detection['class']:
+        # Changed from exact match to flexible pattern matching
+        if ('traffic sign' in detection['class'].lower() or 
+            'traffic signs' in detection['class'].lower() or 
+            'sign' in detection['class'].lower()):
             detection['source'] = 'vehicle_model'
             detection['class'] = 'unknown'
             vehicle_model_sign_detections.append(detection)
@@ -194,6 +241,7 @@ def combined_sign_detection_classification(frame):
                 x1, y1, x2, y2 = veh_det['bbox']
                 sign_crop = frame[y1:y2, x1:x2]
                 
+                # Remove all this manual processing:
                 models_dict = get_models_dict()
                 if models_dict is not None and 'sign_classify' in models_dict:
                     classification_model = models_dict['sign_classify']
@@ -208,10 +256,11 @@ def combined_sign_detection_classification(frame):
                 class_idx = np.argmax(pred[0])
                 class_confidence = float(pred[0][class_idx])
                 
-                if 0 <= class_idx < len(class_descriptions):
-                    classification = class_descriptions[class_idx]
-                else:
-                    classification = f"Class {class_idx}"
+                # And replace with:
+                classification_result = classify_sign_crop(sign_crop)
+                classification = classification_result['class']
+                class_confidence = classification_result['confidence']
+                class_idx = classification_result['class_index']
                 
                 enhanced_det = {
                     'bbox': veh_det['bbox'],

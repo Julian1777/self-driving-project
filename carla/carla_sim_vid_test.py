@@ -295,16 +295,20 @@ def show_image(frame):
 
                                 cv.rectangle(light_detect_image, (x1, y1), (x2, y2), color, thickness)
                             
-                            confidence_text = f"{light['confidence']:.2f}"
-                            if 'agreement' in light and light['agreement']:
-                                label = f"{light['class']}: {confidence_text} ✓✓"  # Double checkmark for agreement
-                            elif 'source' in light:
-                                if light['source'] == 'traffic_light_model_only':
-                                    label = f"{light['class']}: {confidence_text} (TL)"
-                                elif light['source'] == 'vehicle_model_only':
-                                    label = f"{light['class']}: {confidence_text} (V)"
-                            else:
-                                label = f"{light['class']}: {confidence_text}"
+                            confidence_text = f"{light.get('confidence', 0):.2f}"
+                            source_tag = ""
+                            verified_tag = ""
+                            
+                            if 'source' in light:
+                                if light['source'] == 'traffic_light_model':
+                                    source_tag = " (TL)"
+                                elif light['source'] == 'vehicle_model':
+                                    source_tag = " (VM)"
+                            
+                            if light.get('verified', False):
+                                verified_tag = " ✓"
+                            
+                            label = f"{light['class']}: {confidence_text}{source_tag}{verified_tag}"
                             
                             text_size = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
                             cv.rectangle(light_detect_image, 

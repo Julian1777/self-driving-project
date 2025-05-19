@@ -34,7 +34,7 @@ def detect_vehicles_pedestrians(frame, model=None, include_traffic_lights=True, 
         target_classes.extend(["traffic light"])
 
     if include_traffic_signs:
-        target_classes.extend(["traffic signs"])
+        target_classes.extend(["traffic sign"])
 
     results = model(frame, conf=0.30)
 

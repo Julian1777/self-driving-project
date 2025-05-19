@@ -14,7 +14,7 @@ from tensorflow.keras import layers
 BATCH_SIZE = 64
 IMG_SIZE = (224,224)
 SEED = 123
-EPOCHS = 20
+EPOCHS = 50
 
 
 print("GPU Available:", tf.config.list_physical_devices('GPU'))
