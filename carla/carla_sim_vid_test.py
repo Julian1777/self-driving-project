@@ -121,7 +121,7 @@ def load_all_models():
         print("Sign detection model loaded")
         
         # Load sign classification model
-        MODELS['sign_classify'] = tf.keras.models.load_model(os.path.join("model", "sign_classification.h5"))
+        MODELS['sign_classify'] = tf.keras.models.load_model(os.path.join("model", "sign_classification.h5"), compile=False)
         print("Sign classification model loaded")
         
         # Load traffic light detection model
