@@ -8,7 +8,7 @@ import threading
 import time
 import queue
 
-VIDEO_PATH = os.path.join("test_videos", "ams_driving_cropped.mp4")
+VIDEO_PATH = os.path.join("test_videos", "munich_driving_cropped.mp4")
 FRAME_SKIP = 2
 MODELS = {}
 last_lane_update = 0
@@ -121,7 +121,7 @@ def load_all_models():
         print("Sign detection model loaded")
         
         # Load sign classification model
-        MODELS['sign_classify'] = tf.keras.models.load_model(os.path.join("model", "sign_classification.h5"), compile=False)
+        MODELS['sign_classify'] = tf.keras.models.load_model(os.path.join("model", "traffic_sign_classification.h5"), compile=False)
         print("Sign classification model loaded")
         
         # Load traffic light detection model

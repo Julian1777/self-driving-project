@@ -2,14 +2,16 @@ import cv2 as cv
 import numpy as np
 import os
 import pandas as pd
+import uuid
 from ultralytics import YOLO
 import tensorflow as tf
 import sys
+from PIL import Image
 from vehicle_pedestrian_detection import detect_vehicles_pedestrians
 
-IMG_SIZE = (224, 224)
-SIGN_MODEL_PATH = os.path.join("model", "sign_detection")
-SIGN_CLASSIFY_MODEL_PATH = os.path.join("model", "sign_classification.h5")
+IMG_SIZE = (30, 30)
+SIGN_MODEL_PATH = os.path.join("model", "sign_detection.pt")
+SIGN_CLASSIFY_MODEL_PATH = os.path.join("model", "traffic_sign_classification.h5")
 
 def get_models_dict():
     try:
@@ -52,37 +54,22 @@ for class_id, description in class_names_dict.items():
     if 0 <= class_id < num_classes:
         class_descriptions[class_id] = description
 
-def calculate_iou(box1, box2):
-    x1_1, y1_1, x2_1, y2_1 = box1
-    x1_2, y1_2, x2_2, y2_2 = box2
-
-    area1 = (x2_1 - x1_1) * (y2_1 - y1_1)
-    area2 = (x2_2 - x1_2) * (y2_2 - y1_2)
-
-    x1_inter = max(x1_1, x1_2)
-    y1_inter = max(y1_1, y1_2)
-    x2_inter = min(x2_1, x2_2)
-    y2_inter = min(y2_1, y2_2)
-
-    if x2_inter < x1_inter or y2_inter < y1_inter:
-        return 0.0
-    
-    intersection_area = (x2_inter - x1_inter) * (y2_inter - y1_inter)
-
-    union_area = area1 + area2 - intersection_area
-
-    return intersection_area / union_area
-
 def classify_sign_crop(sign_crop):
     try:
-        sign_crop_rgb = cv.cvtColor(sign_crop, cv.COLOR_BGR2RGB)
+        if sign_crop.shape[2] == 3:
+            sign_crop_rgb = cv.cvtColor(sign_crop, cv.COLOR_BGR2RGB)
+        else:
+            sign_crop_rgb = sign_crop
+
+        save_dir = "debug_sign_crops"
+        os.makedirs(save_dir, exist_ok=True)
+        unique_name = f"crop_{uuid.uuid4().hex[:8]}.png"
+        Image.fromarray(sign_crop_rgb).save(os.path.join(save_dir, unique_name))
         
-        img = cv.resize(sign_crop_rgb, IMG_SIZE)
-        
-        if img.max() > 1.0:
-            img = img / 255.0
-        
-        img = np.expand_dims(img, axis=0)
+        img_pil = Image.fromarray(sign_crop_rgb)
+        img_pil = img_pil.resize(IMG_SIZE)
+        img_np = np.array(img_pil).astype(np.float32) / 255.0
+        img = np.expand_dims(img_np, axis=0)
         
         models_dict = get_models_dict()
         if models_dict is not None and 'sign_classify' in models_dict:
@@ -98,6 +85,11 @@ def classify_sign_crop(sign_crop):
             classification = class_descriptions[class_idx]
         else:
             classification = f"Class {class_idx}"
+
+        print("class_idx:", class_idx)
+        print("class_descriptions:", class_descriptions)
+        print("classification:", classification)
+        print("pred[0]:", pred[0])
         
         top_indices = np.argsort(pred[0])[-3:][::-1]
         print(f"Top 3 predictions for sign:")
@@ -194,6 +186,7 @@ def detect_classify_sign(frame):
 
 def combined_sign_detection_classification(frame):
     sign_model_detections = detect_classify_sign(frame)
+    print(f"Sign model detected {len(sign_model_detections)} signs")
 
     vehicle_model_detections = detect_vehicles_pedestrians(frame, include_traffic_lights=False, include_traffic_signs=True)
 
@@ -203,79 +196,76 @@ def combined_sign_detection_classification(frame):
     print(f"Vehicle model found classes: {classes_found}")
 
     vehicle_model_sign_detections = []
-
     for detection in vehicle_model_detections:
-        # Changed from exact match to flexible pattern matching
         if ('traffic sign' in detection['class'].lower() or 
             'traffic signs' in detection['class'].lower() or 
             'sign' in detection['class'].lower()):
             detection['source'] = 'vehicle_model'
             detection['class'] = 'unknown'
             vehicle_model_sign_detections.append(detection)
+    
+    print(f"Vehicle model detected {len(vehicle_model_sign_detections)} signs")
 
     final_detections = []
 
     for sign_det in sign_model_detections:
-        sign_det['source'] = 'sign_model'
-        sign_det['verified'] = False
-        final_detections.append(sign_det)
+        if sign_det['detection_confidence'] > 0.4:
+            sign_det['source'] = 'sign_model'
+            sign_det['verified'] = False
+            final_detections.append(sign_det)
 
     for veh_det in vehicle_model_sign_detections:
-        is_new = True
-        
-        for sign_det in sign_model_detections:
-            iou = calculate_iou(veh_det['bbox'], sign_det['bbox'])
-            
-            if iou > 0.3:
-                is_new = False
-                for i, det in enumerate(final_detections):
-                    if det is sign_det:
-                        final_detections[i]['detection_confidence'] *= 1.1
-                        final_detections[i]['detection_confidence'] = min(0.99, final_detections[i]['detection_confidence'])
-                        final_detections[i]['verified'] = True
-                        break
-                break
-        
-        if is_new and veh_det['confidence'] > 0.5:
+        if veh_det['confidence'] > 0.6:
             try:
                 x1, y1, x2, y2 = veh_det['bbox']
                 sign_crop = frame[y1:y2, x1:x2]
                 
-                # Remove all this manual processing:
-                models_dict = get_models_dict()
-                if models_dict is not None and 'sign_classify' in models_dict:
-                    classification_model = models_dict['sign_classify']
-                else:
-                    classification_model = tf.keras.models.load_model(SIGN_CLASSIFY_MODEL_PATH)
-                
-                img = cv.resize(sign_crop, IMG_SIZE)
-                img = img / 255.0
-                img = np.expand_dims(img, axis=0)
-                
-                pred = classification_model.predict(img, verbose=0)
-                class_idx = np.argmax(pred[0])
-                class_confidence = float(pred[0][class_idx])
-                
-                # And replace with:
                 classification_result = classify_sign_crop(sign_crop)
                 classification = classification_result['class']
                 class_confidence = classification_result['confidence']
                 class_idx = classification_result['class_index']
                 
-                enhanced_det = {
-                    'bbox': veh_det['bbox'],
-                    'detection_class': veh_det['class'],
-                    'detection_confidence': veh_det['confidence'],
-                    'classification': classification,
-                    'classification_confidence': class_confidence,
-                    'source': 'vehicle_model',
-                    'verified': False
-                }
-                
-                final_detections.append(enhanced_det)
+                if class_confidence > 0.4:
+                    enhanced_det = {
+                        'bbox': veh_det['bbox'],
+                        'detection_class': veh_det['class'],
+                        'detection_confidence': veh_det['confidence'],
+                        'classification': classification,
+                        'classification_confidence': class_confidence,
+                        'source': 'vehicle_model',
+                        'verified': False
+                    }
+                    
+                    final_detections.append(enhanced_det)
                 
             except Exception as e:
                 print(f"Error classifying vehicle model sign: {e}")
     
-    print(f"Combined sign detection returning {len(final_detections)} signs")
-    return final_detections
+    filtered_detections = []
+    for i, det1 in enumerate(final_detections):
+        x1_1, y1_1, x2_1, y2_1 = det1['bbox']
+        center1 = ((x1_1 + x2_1) // 2, (y1_1 + y2_1) // 2)
+        
+        if 'skip' in det1 and det1['skip']:
+            continue
+        
+        filtered_detections.append(det1)
+        
+        for j in range(i+1, len(final_detections)):
+            det2 = final_detections[j]
+            x1_2, y1_2, x2_2, y2_2 = det2['bbox']
+            center2 = ((x1_2 + x2_2) // 2, (y1_2 + y2_2) // 2)
+            
+            distance = np.sqrt((center1[0] - center2[0])**2 + (center1[1] - center2[1])**2)
+            
+            if distance < 50:
+                if det1['detection_confidence'] < det2['detection_confidence']:
+                    filtered_detections.pop()
+                    filtered_detections.append(det2)
+                    det1['skip'] = True
+                    break
+                else:
+                    det2['skip'] = True
+    
+    print(f"Combined sign detection returning {len(filtered_detections)} signs")
+    return filtered_detections
