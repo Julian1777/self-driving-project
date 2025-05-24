@@ -21,6 +21,9 @@ def get_models_dict():
         return None
     except:
         return None
+    
+def random_brightness(x):
+    return tf.image.random_brightness(x, max_delta=0.2)
 
 def load_class_names(csv_path):
     try:
@@ -75,7 +78,7 @@ def classify_sign_crop(sign_crop):
         if models_dict is not None and 'sign_classify' in models_dict:
             classification_model = models_dict['sign_classify']
         else:
-            classification_model = tf.keras.models.load_model(SIGN_CLASSIFY_MODEL_PATH)
+            classification_model = tf.keras.models.load_model(SIGN_CLASSIFY_MODEL_PATH, custom_objects={"random_brightness": random_brightness})
         
         pred = classification_model.predict(img, verbose=0)
         class_idx = np.argmax(pred[0])
@@ -131,7 +134,7 @@ def detect_classify_sign(frame):
     if models_dict is not None and 'sign_classify' in models_dict:
         classification_model = models_dict['sign_classify']
     else:
-        classification_model = tf.keras.models.load_model(SIGN_CLASSIFY_MODEL_PATH)
+        classification_model = tf.keras.models.load_model(SIGN_CLASSIFY_MODEL_PATH, custom_objects={"random_brightness": random_brightness})
         print(f"Warning: Loading sign classification model from scratch - slower!")
 
     results = detection_model(frame, conf=0.2)

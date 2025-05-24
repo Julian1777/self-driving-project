@@ -1,12 +1,14 @@
 import tkinter as tk
 import numpy as np
-import random
 from PIL import Image, ImageTk
 import cv2 as cv
 import os
 import threading
 import time
 import queue
+import tensorflow as tf
+from tensorflow.keras.saving import register_keras_serializable
+
 
 VIDEO_PATH = os.path.join("test_videos", "munich_driving_cropped.mp4")
 FRAME_SKIP = 2
@@ -105,6 +107,10 @@ def numpy_to_tkinter(array, window_id="main"):
     
     return photo
 
+@register_keras_serializable()
+def random_brightness(x):
+    return tf.image.random_brightness(x, max_delta=0.2)
+
 def load_all_models():
     try:
         print("Loading models, please wait...")
@@ -121,7 +127,7 @@ def load_all_models():
         print("Sign detection model loaded")
         
         # Load sign classification model
-        MODELS['sign_classify'] = tf.keras.models.load_model(os.path.join("model", "traffic_sign_classification.h5"), compile=False)
+        MODELS['sign_classify'] = tf.keras.models.load_model(os.path.join("model", "traffic_sign_classification.h5"), compile=False, custom_objects={"random_brightness": random_brightness})
         print("Sign classification model loaded")
         
         # Load traffic light detection model

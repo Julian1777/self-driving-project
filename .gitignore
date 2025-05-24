@@ -3,6 +3,7 @@
 *.h5
 *.zip
 *.pt
+carla/debug_sign_crops
 lane_detection_cnn/dataset/
 traffic-sign/dataset/
 traffic_lights/dataset
