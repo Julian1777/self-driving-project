@@ -21,6 +21,7 @@
     - [Traffic Light Detection \& Classification Demo](#traffic-light-detection--classification-demo)
     - [Latest Lane Detection Demo (v2)](#latest-lane-detection-demo-v2)
       - [Previous Lane Detection Demo (v1)](#previous-lane-detection-demo-v1)
+    - [YOLOP Lane Detection Demo](#yolop-lane-detection-demo)
     - [Foxglove Visualization Demo](#foxglove-visualization-demo)
     - [Segmentation Demo](#segmentation-demo)
   - [Sensor Suite](#sensor-suite)
@@ -109,6 +110,17 @@ The original demo is still available for reference:
 
 ---
 
+### YOLOP Lane Detection Demo
+Watch both the raw model segmentation output and the multiple processed lanes on a highway video.
+
+<img src="media/demo_gifs/yolop.gif" alt="YOLOP Lane Detection Demo" width="600" height="337" />
+
+**Extended Demo:** [Watch the full video here](https://youtu.be/CZC2ajqDkuU)
+
+> Note: This is not the final integration of the yolop model in VisionPilot. This only serves as a demo of the model's capabilities and use cases for VisionPilot.
+
+---
+
 ### Foxglove Visualization Demo
 
 See real-time LiDAR point cloud streaming and autonomous vehicle telemetry in Foxglove Studio:
@@ -165,12 +177,11 @@ VisionPilot uses a **containerized microservices architecture** where each perce
 
 | Service | Port | Function | Model/Framework |
 |---------|------|----------|-----------------|
-| **CV Lane Detection** | 4777 | Multi-lane detection (3→2→1 fallback) | OpenCV |
 | **Object Detection** | 5777 | Vehicle, pedestrian, cyclist detection | YOLOv11 |
 | **Traffic Light Detection** | 6777 | Traffic light detection & state classification | YOLOv11 |
 | **Sign Detection** | 7777 | Traffic sign detection | YOLOv11 |
 | **Sign Classification** | 8777 | Traffic sign type classification | CNN |
-| **YOLOP** | 9777 | Unified: lanes + drivable area + objects | YOLOP |
+| **YOLOP** | 9777 | Unified: lanes + drivable area + objects | YOLOPX |
 
 ### Data Flow
 
@@ -180,7 +191,6 @@ BeamNG Simulation Loop
 PerceptionClient.process_frame()
     ↓
 Aggregator (concurrent orchestration)
-    ├─→ CV Lane Detection (4777)
     ├─→ Object Detection (5777)
     ├─→ Traffic Light (6777)
     ├─→ Sign Detection (7777)
@@ -363,27 +373,27 @@ Extract individual results + visualize
 
 **Academic Papers & Research:**
 
-- YOLOP/YOLOPX: [Anchor-free multi-task learning network for panoptic driving perception](https://doi.org/10.1016/j.patcog.2023.110152)
-  ```bibtex
-  @article{YOLOPX2024,
-    title={YOLOPX: Anchor-free multi-task learning network for panoptic driving perception},
-    author={Zhan, Jiao and Luo, Yarong and Guo, Chi and Wu, Yejun and Liu, Jingnan},
-    journal={Pattern Recognition},
-    volume={148},
-    pages={110152},
-    year={2024}
-  }
-  ```
+YOLOP/YOLOPX: [Anchor-free multi-task learning network for panoptic driving perception](https://doi.org/10.1016/j.patcog.2023.110152)
+```bibtex
+@article{YOLOPX2024,
+  title={YOLOPX: Anchor-free multi-task learning network for panoptic driving perception},
+  author={Zhan, Jiao and Luo, Yarong and Guo, Chi and Wu, Yejun and Liu, Jingnan},
+  journal={Pattern Recognition},
+  volume={148},
+  pages={110152},
+  year={2024}
+}
+```
 
 ## Citation
 
 If you use VisionPilot in your research, please cite:
 
 ```bibtex
-@software{visionpilot2025,
+@software{visionpilot2026,
   title={VisionPilot: Autonomous Driving Simulation, Computer Vision & Real-Time Perception},
   author={Julian Stamm},
-  year={2025},
+  year={2026},
   url={https://github.com/visionpilot-project/VisionPilot}
 }
 ```
