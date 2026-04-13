@@ -18,6 +18,8 @@ __pycache__/
 *.zip
 *.tar.gz
 
+*.docx
+
 beamng_sim/debug_output_old/
 beamng_sim/object/object_detection.ipynb
 DIRECTORY_STRUCTURE.md

@@ -17,6 +17,7 @@
   - [Overview](#overview)
   - [Demos](#demos)
     - [Emergency Braking (AEB) Demo](#emergency-braking-aeb-demo)
+    - [Blind Spot Detection (BSD) Demo](#blind-spot-detection-bsd-demo)
     - [Sign Detection \& Detection and classification](#sign-detection--detection-and-classification)
     - [Traffic Light Detection \& Classification Demo](#traffic-light-detection--classification-demo)
     - [Latest Lane Detection Demo (v2)](#latest-lane-detection-demo-v2)
@@ -66,6 +67,13 @@ Watch the Emergency Braking System (AEB) in action with real-time radar filterin
 
 <img src="media/demo_gifs/aeb_gif.gif" alt="AEB Demo" width="600" height="337" />
 
+**Extended Demo:** [Watch the full video here](https://www.youtube.com/watch?v=Z8Y2-MpmrRg)
+
+---
+
+### Blind Spot Detection (BSD) Demo
+See the Blind Spot Detection (BSD) system in action using radar data to identify vehicles in the blind spot:
+<img src="media/demo_gifs/bsd_demo.gif" alt="Blind Spot Detection Demo" width="600" height="337" />
 **Extended Demo:** [Watch the full video here](https://www.youtube.com/watch?v=Z8Y2-MpmrRg)
 
 ---
@@ -260,12 +268,12 @@ Extract individual results + visualize
 - [x] Integrate vehicle control (Throttle, Steering, Braking Implemented) (PID needs further tuning)
 - [x] Integrate PIDF controller
 - [x] ⭐ Adaptive Cruise Control (Currently only basic Cruise Control implemented)
-- [x] ⭐ Automatic Emergency Braking AEB (Still an issue with crashing after EB activated)
+- [x] Automatic Emergency Braking AEB 
   - [ ] Obstacle Avoidance (Steering away from obstacles instead of just braking)
 - [ ] Model Predictive Control MPC (More advanced control strategy that optimizes control inputs over a future time horizon)
 - [ ] Curve Speed Optimization (Slow down for sharp curves based on lane curvature)
 - [ ] Trajectory Predcition for surrounding vehicles
-- [ ] 🔥 Blindspot Monitoring (Using left/right rear short range radars)
+- [x] 🔥 Blindspot Monitoring (Using left/right rear short range radars)
 - [ ] Traffic Rule Enforcement (Stop at red lights, stop signs, yield signs)
 - [ ] Dynamic Target Speed based on Speed Limit Signs
 - [ ] Global Path planning
@@ -280,12 +288,12 @@ Extract individual results + visualize
 ### Simulation & Scenarios
 
 - [x] Integrate and test in BeamNG.tech simulation (replacing CARLA)
+- [ ] Migrate to CARLA Simulator
 - [x] Modularize and clean up BeamNG.tech pipeline
 - [x] Tweak lane detection parameters and thresholds
-- [ ] Fog Weather conditions (Rain or snow not supported in BeamNG.tech)
+- [ ] Fog Weather conditions
 - [ ] Traffic scenarios: driving in heavy, moderate, and light traffic
 - [ ] Test all Systems in different lighting conditions (Day, Night, Dawn/Dusk, Tunnel)
-- [ ] Construction Zones (temporary lanes, cones, barriers)
 - [ ] 💤💤 Test using actual RC car
 
 ### Visualization & Logging
@@ -293,7 +301,7 @@ Extract individual results + visualize
 - [x] ⭐ Full Foxglove visualization integration (Overhaul needed)
 - [x] Modular YAML configuration system
 - [x] Real-time drive logging and telemetry
-- [ ] Birds eye view BEV (Top down view of vehicle and surroundings)
+- [ ] 🔥 Birds eye view BEV (Top down view of vehicle and surroundings)
 - [ ] Real time Annotations Overlay in Foxglove
 - [ ] Show predicted trajectories in Foxglove
 - [ ] Show Global and local path plans in Foxglove
@@ -313,7 +321,7 @@ Extract individual results + visualize
 ### README To-Dos
 
 - [x] Add demo images and videos to README
-- [ ] Add performance benchmarks section
+- [ ] 💤 Add performance benchmarks section
 - [x] Add Table of Contents for easier navigation
 
 ### Other
@@ -321,7 +329,7 @@ Extract individual results + visualize
 - [x] Vibe-Code a website for the project
 - [x] Redo project structure for better modularity
 
-> Driver Monitoring System would've been pretty cool but human drivers are not implemented in BeamNG.tech
+> Driver Monitoring System would've been pretty cool but human drivers are not implemented in BeamNG.tech or Carla
 
 ## Legend
 
@@ -345,12 +353,6 @@ Extract individual results + visualize
 - **PID Controller Tuning**: May oscillate on aggressive maneuvers
 - **Real-World Testing**: Only validated in simulation (BeamNG.tech), for now...
 - **Service Latency**: Network overhead between BeamNG and containerized services (~50-100ms per aggregation)
-
-### Simulator-Specific Limitations
-
-- Rain/snow physics not supported in BeamNG.tech
-- Pedestrians not controllable by traffic system
-- Human drivers not implemented
 
 ## Credits
 
@@ -387,7 +389,7 @@ YOLOP/YOLOPX: [Anchor-free multi-task learning network for panoptic driving perc
 
 ## Citation
 
-If you use VisionPilot in your research, please cite:
+If you use VisionPilot in your project, please cite:
 
 ```bibtex
 @software{visionpilot2026,
