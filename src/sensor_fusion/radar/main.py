@@ -91,25 +91,72 @@ def convert_to_xyz(points):
     return converted_points
 
 
-def filter_radar(radar_data, radar_cfg):
-
-    try:
-        raw_points = radar_data['point_cloud']
-    except KeyError:
-        print("radar missing 'point_cloud' key")
-        raw_points = []
+def filter_radar(raw_points, radar_cfg):
 
     filtered_points = []
+    filtering_cfg = radar_cfg.get('radar_filtering', {})
+    # parameters for filtering
+    max_dist = filtering_cfg.get('max_range', 100.0)
+    min_dist = filtering_cfg.get('min_range', 0.5)
+    min_snr  = filtering_cfg.get('min_snr', 5.0)
+    max_el   = filtering_cfg.get('max_elevation', 5.0)
+    min_el   = filtering_cfg.get('min_elevation', -5.0)
+    max_az   = filtering_cfg.get('max_azumith', 45.0)
+    min_az   = filtering_cfg.get('min_azumith', -45.0)
 
     for point in raw_points:
-        range_dist, doppler_vel, azumith_angle, elevation_angle, rcs, snr = point
 
-        within_range = (range_dist <= radar_cfg['max_distance'] and range_dist >= radar_cfg['min_distance'])
-        strong_signal = (snr >= radar_cfg['min_snr'])
-        elevation = (elevation_angle <= radar_cfg['max_elevation'] and elevation_angle >= radar_cfg['min_elevation'])
-        azumith = (azumith_angle <= radar_cfg['max_azumith'] and azumith_angle >= radar_cfg['min_azumith'])
+        # extract point data
+        range_dist = float(point[0])
+        doppler_vel = float(point[1])
+        azimuth_angle = float(point[2])
+        elevation_angle = float(point[3])
+        rcs = float(point[4])
+        snr = float(point[5])
 
-        if within_range and strong_signal and elevation and azumith:
+        within_range = (min_dist <= range_dist <= max_dist)
+        strong_signal = (snr >= min_snr)
+        elevation = (min_el <= elevation_angle <= max_el)
+        azimuth = (min_az <= azimuth_angle <= max_az)
+
+        if within_range and strong_signal and elevation and azimuth:
+            # keep original point format
             filtered_points.append(point)
 
     return filtered_points
+
+def process_bsd_frame(radar_sensor, radar_cfg):
+    """
+    Process radar data for Blind Spot Detection (BSD).
+    Returns True if an object is detected in the blind spot zone.
+    """
+    if radar_sensor is None:
+        return False
+        
+    try:
+        radar_points = radar_sensor.poll()
+    except Exception as e:
+        print(f"Error polling BSD radar: {e}")
+        return False
+        
+    filtered_points = filter_radar(radar_points, radar_cfg)
+    converted_points = convert_to_xyz(filtered_points)
+
+    return calculate_bsd(converted_points, radar_cfg)
+
+def calculate_bsd(converted_points, radar_cfg):
+    """
+    Returns True if an object is present in the blindspot.
+    """
+    # min and max distance for bsd zone
+    bsd_cfg = radar_cfg.get('bsd', {})
+    bsd_min_dist = bsd_cfg.get('min_distance', 0.5)
+    bsd_max_dist = bsd_cfg.get('max_distance', 8.0)
+    
+    for point in converted_points:
+        x, y, z, doppler_vel, _, _ = point
+        distance = np.sqrt(x**2 + y**2)
+        if bsd_min_dist < distance < bsd_max_dist:
+            return True
+            
+    return False

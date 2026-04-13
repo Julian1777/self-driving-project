@@ -27,6 +27,7 @@ from simulation.perception_client import PerceptionClient
 
 from src.sensor_fusion.lidar.main import process_frame as lidar_process_frame
 from src.sensor_fusion.radar.main import process_frame as radar_process_frame
+from src.sensor_fusion.radar.main import process_bsd_frame as radar_bsd_process
 
 from simulation.foxglove_integration.bridge_instance import bridge
 
@@ -324,11 +325,26 @@ def radar_aeb_acc(radar_front, perception_cfg, speed_kph):
     radar_result = radar_process_frame(radar_front, radar_cfg, speed_kph)
     return radar_result
 
+def radar_bsd(radar_left, radar_right, perception_cfg):
+    """
+    Check left and right blind spots using rear radars.
+    Returns dictionary with warning statuses for each side.
+    """
+    radar_cfg = perception_cfg['radar']
+    # If the radar sensor exists process its frame to determine if theres a vehicle in blind spot
+    left_warning = radar_bsd_process(radar_left, radar_cfg) if radar_left else False
+    right_warning = radar_bsd_process(radar_right, radar_cfg) if radar_right else False
+    
+    return {
+        'left_warning': left_warning,
+        'right_warning': right_warning
+    }
+
 
 def draw_combined_detections(img, sign_detections, vehicle_detections, tl_detections):
     result_img = img.copy()
     
-    # Draw Signs (Blue)
+    # Draw Signs in blue
     for det in sign_detections:
         x1, y1, x2, y2 = det['bbox']
         classification = det.get('classification', 'Sign')
@@ -337,14 +353,14 @@ def draw_combined_detections(img, sign_detections, vehicle_detections, tl_detect
         cv2.rectangle(result_img, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
         cv2.putText(result_img, label, (int(x1), int(y1)-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-    # Draw Vehicles (Green)
+    # Draw Vehicles in green
     for det in vehicle_detections:
         x1, y1, x2, y2 = det['bbox']
         label = f"{det['class']} {det['confidence']:.2f}"
         cv2.rectangle(result_img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
         cv2.putText(result_img, label, (int(x1), int(y1)-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # Draw Traffic Lights (Orange)
+    # Draw Traffic Lights in orange
     for det in tl_detections:
         x1, y1, x2, y2 = det['bbox']
         label = f"{det['class']} {det['confidence']:.2f}"
@@ -600,6 +616,19 @@ def main():
 
             # Lidar Object Detection
             # lidar_detections, lidar_obj_img = lidar_object_detections(lidar, camera_detections=vehicle_detections)
+
+            # Blind Spot Monitoring bsd
+            try:
+                radar_left = radars.get('radar_rear_left', None)
+                radar_right = radars.get('radar_rear_right', None)
+                if radar_left or radar_right:
+                    bsd_status = radar_bsd(radar_left, radar_right, perception_cfg)
+                    if bsd_status['left_warning']:
+                        print("Vehicle in left blind spot")
+                    if bsd_status['right_warning']:
+                        print("Vehicle in right blind spot")
+            except Exception as bsd_e:
+                print(f"BSD processing error: {bsd_e}")
 
             throttle = 0.0
             brake = 0.0
