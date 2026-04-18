@@ -3,20 +3,32 @@ import sys
 import numpy as np
 import torch
 import cv2
+import base64
 from flask import Flask, request, jsonify
 import torchvision.transforms as transforms
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, '/app/yolop_repo')
 
 # Import YOLOP model utilities (from inference example)
-# These should exist in your YOLOP installation
 try:
-    from yolop.lib.config import cfg
-    from yolop.lib.models import get_net
-    from yolop.lib.core.general import non_max_suppression, scale_coords
-    from yolop.lib.core.postprocess import morphological_process, connect_lane
-except ImportError:
-    print("[YOLOP Service] Warning: YOLOP utilities not found. Install YOLOP or provide custom utils.")
+    from lib.config import cfg
+    from lib.models import get_net
+    from lib.core.general import non_max_suppression, scale_coords
+    from lib.core.postprocess import morphological_process, connect_lane
+    print("[YOLOP Service] Successfully imported YOLOP libraries")
+except ImportError as e:
+    print(f"[YOLOP Service] Warning: YOLOP utilities not found: {e}")
+    print("[YOLOP Service] Trying alternative import paths...")
+    try:
+        from yolop.lib.config import cfg
+        from yolop.lib.models import get_net
+        from yolop.lib.core.general import non_max_suppression, scale_coords
+        from yolop.lib.core.postprocess import morphological_process, connect_lane
+        print("[YOLOP Service] Successfully imported YOLOP libraries from yolop package")
+    except ImportError as e2:
+        print(f"[YOLOP Service] Alternative import also failed: {e2}")
+        print("[YOLOP Service] Starting without YOLOP utilities - will fail at inference")
 
 app = Flask(__name__)
 
@@ -62,6 +74,8 @@ def load_models():
             normalize,
         ])
         
+        sys.modules['__main__'].MODELS = MODELS
+        
         print(f"[YOLOP Service] Model loaded from {model_path}")
         print("[YOLOP Service] Ready to process frames")
         return True
@@ -97,23 +111,30 @@ def process_yolop():
         "detection_count": N
     }
     """
+    data = None
     try:
         data = request.get_json()
         
-        # Decode frame from request
-        frame_data = np.array(data['frame'], dtype=np.uint8)
+        # Decode frame from request (base64 encoded)
+        frame_b64 = data['frame']
+        frame_bytes = base64.b64decode(frame_b64)
         frame_shape = data.get('frame_shape', [1080, 1920, 3])
-        frame = frame_data.reshape(frame_shape)
+        frame = np.frombuffer(frame_bytes, dtype=np.uint8).reshape(frame_shape)
         
         confidence_threshold = data.get('confidence_threshold', 0.3)
         frame_id = data.get('frame_id', 'unknown')
         
         print(f"[YOLOP Service] Processing frame {frame_id}: {frame.shape}, threshold: {confidence_threshold}")
         
-        # Preprocess image
-        img_ori = frame
-        img_tensor = TRANSFORMS(img_ori).to(DEVICE)
-        img_tensor = img_tensor.unsqueeze(0)  # Add batch dimension: (1, 3, H, W)
+        # Convert RGB to BGR for YOLOP (model expects OpenCV format)
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        
+        # Preprocess image: resize to standard YOLOP input size (640x640)
+        img_ori = frame_bgr
+        # Resize to 640x640 which is standard YOLOP input size
+        img_resized = cv2.resize(img_ori, (640, 640), interpolation=cv2.INTER_LINEAR)
+        img_tensor = TRANSFORMS(img_resized).to(DEVICE)
+        img_tensor = img_tensor.unsqueeze(0)  # Add batch dimension: (1, 3, 640, 640)
         
         # Run YOLOP inference
         with torch.no_grad():
@@ -132,23 +153,29 @@ def process_yolop():
         
         # Scale detections back to original image size
         if len(det):
-            det[:, :4] = scale_coords(img_tensor.shape[2:], det[:, :4], img_ori.shape).round()
+            # Scale from 640x640 back to original image dimensions
+            det[:, :4] = scale_coords((640, 640), det[:, :4], img_ori.shape).round()
         
         # Parse drivable area segmentation
         da_seg_out = torch.softmax(da_seg_out, dim=1)
         da_seg_mask = torch.argmax(da_seg_out, dim=1)
-        da_seg_mask = da_seg_mask.squeeze().cpu().numpy()
+        da_seg_mask = da_seg_mask.squeeze().cpu().numpy().astype(np.uint8)
         
         # Parse lane line segmentation
         ll_seg_out = torch.softmax(ll_seg_out, dim=1)
         ll_seg_mask = torch.argmax(ll_seg_out, dim=1)
-        ll_seg_mask = ll_seg_mask.squeeze().cpu().numpy()
+        ll_seg_mask = ll_seg_mask.squeeze().cpu().numpy().astype(np.uint8)
         
-        # Optional: Post-processing
+        da_seg_mask = da_seg_mask.astype(np.uint8)
         da_seg_mask = morphological_process(da_seg_mask)
+        
+        ll_seg_mask = ll_seg_mask.astype(np.uint8)
         ll_seg_mask = connect_lane(ll_seg_mask)
         
-        # Format detections for response
+        original_h, original_w = img_ori.shape[:2]
+        da_seg_mask = cv2.resize(da_seg_mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
+        ll_seg_mask = cv2.resize(ll_seg_mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
+        
         formatted_detections = []
         if len(det) > 0:
             for *xyxy, conf, cls in reversed(det):
@@ -176,10 +203,11 @@ def process_yolop():
         print(f"[YOLOP Service] Error processing frame: {e}")
         import traceback
         traceback.print_exc()
+        frame_id = data.get('frame_id', 'unknown') if data else 'unknown'
         return {
             'status': 'error',
             'message': str(e),
-            'frame_id': data.get('frame_id', 'unknown')
+            'frame_id': frame_id
         }, 500
 
 
