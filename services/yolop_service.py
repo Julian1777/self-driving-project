@@ -74,6 +74,8 @@ def load_models():
             normalize,
         ])
         
+        sys.modules['__main__'].MODELS = MODELS
+        
         print(f"[YOLOP Service] Model loaded from {model_path}")
         print("[YOLOP Service] Ready to process frames")
         return True
@@ -124,8 +126,11 @@ def process_yolop():
         
         print(f"[YOLOP Service] Processing frame {frame_id}: {frame.shape}, threshold: {confidence_threshold}")
         
+        # Convert RGB to BGR for YOLOP (model expects OpenCV format)
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        
         # Preprocess image: resize to standard YOLOP input size (640x640)
-        img_ori = frame
+        img_ori = frame_bgr
         # Resize to 640x640 which is standard YOLOP input size
         img_resized = cv2.resize(img_ori, (640, 640), interpolation=cv2.INTER_LINEAR)
         img_tensor = TRANSFORMS(img_resized).to(DEVICE)
@@ -154,23 +159,23 @@ def process_yolop():
         # Parse drivable area segmentation
         da_seg_out = torch.softmax(da_seg_out, dim=1)
         da_seg_mask = torch.argmax(da_seg_out, dim=1)
-        da_seg_mask = da_seg_mask.squeeze().cpu().numpy()
+        da_seg_mask = da_seg_mask.squeeze().cpu().numpy().astype(np.uint8)
         
         # Parse lane line segmentation
         ll_seg_out = torch.softmax(ll_seg_out, dim=1)
         ll_seg_mask = torch.argmax(ll_seg_out, dim=1)
-        ll_seg_mask = ll_seg_mask.squeeze().cpu().numpy()
+        ll_seg_mask = ll_seg_mask.squeeze().cpu().numpy().astype(np.uint8)
         
-        # Optional: Post-processing
+        da_seg_mask = da_seg_mask.astype(np.uint8)
         da_seg_mask = morphological_process(da_seg_mask)
+        
+        ll_seg_mask = ll_seg_mask.astype(np.uint8)
         ll_seg_mask = connect_lane(ll_seg_mask)
         
-        # Resize segmentation masks back to original image size
         original_h, original_w = img_ori.shape[:2]
         da_seg_mask = cv2.resize(da_seg_mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
         ll_seg_mask = cv2.resize(ll_seg_mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
         
-        # Format detections for response
         formatted_detections = []
         if len(det) > 0:
             for *xyxy, conf, cls in reversed(det):

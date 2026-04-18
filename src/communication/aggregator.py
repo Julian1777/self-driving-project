@@ -2,13 +2,14 @@ import numpy as np
 import requests
 import time
 import logging
+import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='[%(asctime)s][Aggregator] %(levelname)s: %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -30,7 +31,6 @@ class PerceptionAggregator:
     Typical usage:
     ```
     aggregator = PerceptionAggregator({
-        'lane_detection': 'http://localhost:4777',
         'object_detection': 'http://localhost:5777',
         ...
     })
@@ -39,14 +39,13 @@ class PerceptionAggregator:
     ```
     """
     
-    def __init__(self, service_config, timeout=2.0, max_workers=None, retry_count=1):
+    def __init__(self, service_config, timeout=5.0, max_workers=None, retry_count=1):
         """
         Initialize the aggregator.
         
         Args:
             service_config: Dict mapping service names to their HTTP endpoints
                 {
-                    'lane_detection': 'http://localhost:4777',
                     'object_detection': 'http://localhost:5777',
                     'traffic_light_detection': 'http://localhost:6777',
                     'sign_detection': 'http://localhost:7777',
@@ -88,7 +87,7 @@ class PerceptionAggregator:
             try:
                 response = requests.get(
                     f"{endpoint}/health",
-                    timeout=2.0
+                    timeout=self.timeout
                 )
                 is_healthy = response.status_code == 200
                 health_status[service_name] = is_healthy
@@ -166,9 +165,9 @@ class PerceptionAggregator:
     
     def _prepare_payload(self, frame, speed_kph, timestamp_ns, vehicle_pos=None, vehicle_direction=None):
         """
-        Convert numpy frame to JSON-serializable payload.
+        Convert numpy frame to JSON-serializable payload using base64 encoding.
         
-        This is the critical bottleneck - we convert the numpy array to a list.
+        Much more efficient than converting to nested lists.
         
         Args:
             frame: numpy array
@@ -180,19 +179,33 @@ class PerceptionAggregator:
         Returns:
             Dict ready to send via JSON over HTTP
         """
-        # Convert numpy array to list
-        # This is necessary because JSON doesn't natively support numpy types
-        logger.debug(f"Converting frame {frame.shape} to list...")
+        # Convert numpy array to bytes and base64 encode
+        # This is much more efficient than converting to a list
+        logger.debug(f"Encoding frame {frame.shape} to base64...")
         start_convert = time.time()
         
-        frame_list = frame.tolist()  # Convert to nested lists
+        # Ensure uint8
+        if frame.dtype != np.uint8:
+            frame = frame.astype(np.uint8)
+        
+        # Convert to bytes
+        logger.debug(f"Converting {frame.shape} to bytes...")
+        frame_bytes = frame.tobytes()
+        step1_time = (time.time() - start_convert) * 1000
+        logger.debug(f"  tobytes() took {step1_time:.1f}ms")
+        
+        # Encode to base64
+        logger.debug(f"Base64 encoding {len(frame_bytes)} bytes...")
+        frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
+        step2_time = (time.time() - start_convert - step1_time/1000) * 1000
+        logger.debug(f"  b64encode took {step2_time:.1f}ms")
         
         convert_time_ms = (time.time() - start_convert) * 1000
-        logger.debug(f"Frame conversion took {convert_time_ms:.1f}ms")
+        logger.debug(f"Total encoding took {convert_time_ms:.1f}ms (payload size: {len(frame_b64)/1024:.1f}KB)")
         
         # Build payload
         payload = {
-            "frame": frame_list,
+            "frame": frame_b64,
             "frame_shape": list(frame.shape),
             "speed_kph": float(speed_kph),
             "timestamp_ns": int(timestamp_ns)
@@ -204,6 +217,7 @@ class PerceptionAggregator:
         if vehicle_direction is not None:
             payload["vehicle_direction"] = list(vehicle_direction)
         
+        logger.debug(f"Total payload size: {len(str(payload))} bytes")
         return payload
     
     def _submit_tasks(self, payload):
@@ -248,12 +262,17 @@ class PerceptionAggregator:
         for attempt in range(self.retry_count):
             try:
                 logger.debug(f"[{service_name}] Attempt {attempt + 1}/{self.retry_count}")
+                logger.debug(f"[{service_name}] Request URL: {url}")
+                logger.debug(f"[{service_name}] Payload size: {len(str(payload))} bytes")
                 
+                request_start = time.time()
                 response = requests.post(
                     url,
                     json=payload,
                     timeout=self.timeout
                 )
+                request_time = (time.time() - request_start) * 1000
+                logger.debug(f"[{service_name}] POST took {request_time:.1f}ms")
                 
                 # Check for HTTP errors
                 response.raise_for_status()
@@ -307,7 +326,7 @@ class PerceptionAggregator:
         for service_name, future in futures.items():
             try:
                 # This blocks until the future completes (or we've already waited self.timeout)
-                response = future.result(timeout=1.0)  # 1s timeout for getting result from future
+                response = future.result(timeout=self.timeout)  # 1s timeout for getting result from future
                 
                 if response is None:
                     # Request failed during _make_request
@@ -362,12 +381,11 @@ class PerceptionAggregator:
 
 
 # Convenience function for easy aggregator creation
-def create_aggregator(host='localhost', port_base=4777, timeout=2.0):
+def create_aggregator(host='localhost', port_base=4777, timeout=5.0):
     """
     Create an aggregator with default service configuration.
     
     Services are expected to be running at:
-    - CV Lane Detection: host:4777
     - Object detection: host:5777
     - Traffic light: host:6777
     - Sign detection: host:7777
@@ -383,7 +401,6 @@ def create_aggregator(host='localhost', port_base=4777, timeout=2.0):
         Configured PerceptionAggregator instance
     """
     service_config = {
-        'cv_lane_detection': f'http://{host}:4777',
         'object_detection': f'http://{host}:5777',
         'traffic_light_detection': f'http://{host}:6777',
         'sign_detection': f'http://{host}:7777',

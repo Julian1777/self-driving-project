@@ -1,6 +1,6 @@
 import logging
 import numpy as np
-from aggregator import PerceptionAggregator, AggregationResult
+from src.communication.aggregator import PerceptionAggregator, AggregationResult
 
 logger = logging.getLogger(__name__)
 

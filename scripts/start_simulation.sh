@@ -1,8 +1,8 @@
 #!/bin/bash
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.." || exit 1
 
-python -c "
+python3 -c "
 from simulation.foxglove_integration.bridge_instance import bridge
 import sys
 
@@ -21,7 +21,7 @@ FOXGLOVE_PID=$!
 
 sleep 3
 
-python simulation/beamng.py
+python3 simulation/run_carla.py
 
 kill $FOXGLOVE_PID 2>/dev/null
 wait $FOXGLOVE_PID 2>/dev/null

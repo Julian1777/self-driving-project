@@ -3,6 +3,7 @@ import sys
 import numpy as np
 import base64
 from flask import Flask, request, jsonify
+from ultralytics import YOLO
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -14,7 +15,7 @@ app = Flask(__name__)
 MODELS = {}
 
 def load_models():
-    """Initialize detection model"""
+    """Pre-load detection model at startup"""
     global MODELS
     model_path = os.getenv('MODEL_PATH')
     if not model_path:
@@ -25,10 +26,18 @@ def load_models():
         print(f"[Object Detection Service] ERROR: Model file not found at {model_path}")
         return False
     
-    print(f"[Object Detection Service] Model path configured: {model_path}")
-    MODELS['model_path'] = model_path
-    print("[Object Detection Service] Ready to process frames")
-    return True
+    try:
+        print(f"[Object Detection Service] Loading model from {model_path}...")
+        MODELS['vehicle'] = YOLO(model_path)
+        # Make MODELS accessible to imported modules
+        sys.modules['__main__'].MODELS = MODELS
+        print("[Object Detection Service] Model loaded successfully")
+        return True
+    except Exception as e:
+        print(f"[Object Detection Service] ERROR loading model: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 @app.route('/process', methods=['POST'])
 def process_detection():
@@ -58,9 +67,13 @@ def process_detection():
         
         print(f"[Object Detection Service] Processing frame {frame_id}: {frame.shape}, threshold: {confidence_threshold}")
         
+        # Convert RGB to BGR for YOLO (expects OpenCV format)
+        import cv2
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        
         # call obj det infrence logic
         detections, result_img = process_frame(
-            frame,
+            frame_bgr,
             confidence_threshold=confidence_threshold,
             draw_detections=False
         )
@@ -98,11 +111,12 @@ def process_detection():
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
+    model_ready = 'vehicle' in MODELS and MODELS['vehicle'] is not None
     return {
-        'status': 'healthy',
+        'status': 'healthy' if model_ready else 'initializing',
         'service': 'object_detection',
-        'model_configured': MODELS.get('model_path') is not None
-    }, 200
+        'model_ready': model_ready
+    }, 200 if model_ready else 503
 
 if __name__ == '__main__':
     if not load_models():
