@@ -179,9 +179,11 @@ The vehicle is equipped with a comprehensive multi-sensor suite for autonomous p
 
 ## Microservices Architecture
 
-VisionPilot uses a **containerized microservices architecture** where each perception task runs as an independent Flask service, orchestrated by a central Aggregator:
+> **Note:** The microservices architecture is documented below as the intended design. **Currently, for active development and rapid iteration, all perception models run locally in-process** (bypassing Docker containers and the aggregator). This allows faster prototyping and validation of the complete pipeline. The containerized microservices will be re-integrated once the core perception, sensor fusion, and control systems are finalized and validated.
 
-### Service Stack
+VisionPilot is designed to use a **containerized microservices architecture** where each perception task runs as an independent Flask service, orchestrated by a central Aggregator:
+
+### Service Stack (Intended Design)
 
 | Service | Port | Function | Model/Framework |
 |---------|------|----------|-----------------|
@@ -235,30 +237,30 @@ Extract individual results + visualize
 - [x] Advanced lane detection using OpenCV (robust highway, lighting, outlier handling)
 - [x] Integrate Majority Voting system for CV
 - [x] Lighting Condition Detection
-- [x] ⭐ Semantic Segmentatation (Already built not implemented here yet)
-  - [ ] Panoptic segmentation (instance + semantic)
+- [x] ⭐ 💤 Semantic Segmentatation (Already built not implemented here yet)
+  - [ ]  Panoptic segmentation (instance + semantic)
 - [ ] Depth Estimation (Monocular for obstacle distance)
 - [x] ⭐ Real-Time Object Detection (Cars, Trucks, Buses, Pedestrians, Cyclists) (Trained)
 - [ ] 🔥 Speed Estimation using detection from camera and lidar
   - [ ] Multiple Object Tracking (MOT)
 - [x] 🔥🔥 Handle dashed lines better in lane detection
 - [ ] Road Marking Detection (Arrows, Crosswalks, Stop Lines)
-- [ ] 🔥🔥 Lidar Object Detection 3D
-- [ ] Ocluded Object Detection (Detect objects that are partially blocked or not visible in the camera view using radar/lidar)
+- [ ] 🔥 Lidar Object Detection 3D
+- [ ] 💤 Ocluded Object Detection (Detect objects that are partially blocked or not visible in the camera view using radar/lidar)
 - [x] Detect multiple lanes
 - [ ] 🔥 Classify lane types
-- [ ] 💤 Multi Camera Setup (Will implement after all other camera-based features are finished)
+- [ ] 💤💤 Multi Camera Setup (Will implement after all other camera-based features are finished)
 - [ ] 💤 Overtaking, Merging (Will be part of Path Planning)
 
 ### Sensor Fusion & Calibration
 
-- [ ] 🔥 Kalman Filtering
+- [ ] Kalman Filtering
   - [ ] Extended
 - [x] Integrate Radar
 - [x] Integrate Lidar
 - [ ] Integrate GPS
 - [ ] Integrate IMU
-- [ ] 🔥 Ultrasonic Sensor Integration
+- [ ] 🔥🔥 Ultrasonic Sensor Integration
 - [ ] 💤💤 SLAM (simultaneous localization and mapping)
   - [ ] Build HD Map of the BeamNG.tech map
   - [ ] Localize Vehicle on HD Map
@@ -270,7 +272,7 @@ Extract individual results + visualize
 - [x] ⭐ Adaptive Cruise Control (Currently only basic Cruise Control implemented)
 - [x] Automatic Emergency Braking AEB 
   - [ ] Obstacle Avoidance (Steering away from obstacles instead of just braking)
-- [ ] Model Predictive Control MPC (More advanced control strategy that optimizes control inputs over a future time horizon)
+- [ ] 🔥 Model Predictive Control MPC (More advanced control strategy that optimizes control inputs over a future time horizon)
 - [ ] Curve Speed Optimization (Slow down for sharp curves based on lane curvature)
 - [ ] Trajectory Predcition for surrounding vehicles
 - [x] 🔥 Blindspot Monitoring (Using left/right rear short range radars)
@@ -287,8 +289,7 @@ Extract individual results + visualize
 
 ### Simulation & Scenarios
 
-- [x] Integrate and test in BeamNG.tech simulation (replacing CARLA)
-- [ ] Migrate to CARLA Simulator
+- [x] Integrate and test in BeamNG.tech simulation
 - [x] Modularize and clean up BeamNG.tech pipeline
 - [x] Tweak lane detection parameters and thresholds
 - [ ] Fog Weather conditions
@@ -320,6 +321,7 @@ Extract individual results + visualize
 
 ### README To-Dos
 
+- [x] Add detailed documentation (Lane Det first)
 - [x] Add demo images and videos to README
 - [ ] 💤 Add performance benchmarks section
 - [x] Add Table of Contents for easier navigation

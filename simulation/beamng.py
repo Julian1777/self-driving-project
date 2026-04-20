@@ -22,8 +22,64 @@ import math
 import cv2
 from scipy.spatial.transform import Rotation as R
 
-from simulation.perception_client import PerceptionClient
+#from simulation.perception_client import PerceptionClient
 
+# bypassed docker aggregator setup
+from ultralytics import YOLO
+
+print("loading local models...")
+# loaded models locally to bypass docker
+local_models = {}
+local_models['vehicle'] = YOLO('models/object_detection/object_detection.pt')
+local_models['traffic_light'] = YOLO('models/traffic_light/traffic_light_detection.pt')
+#changed key from traffic_sign to sign_detect to match src/perception/sign_detection/detect_classify.py
+local_models['sign_detect'] = YOLO('models/traffic_sign/traffic_sign_detection.pt')
+local_models['sign_classify'] = load_model('models/traffic_sign/traffic_sign_classification.h5')
+
+# initialize yolop model locally
+try:
+    import torch
+    import torchvision.transforms as transforms
+    
+    # Add YOLOP repo to path
+    yolop_repo_path = os.path.join(os.path.dirname(__file__), '..', 'yolopx')
+    sys.path.insert(0, yolop_repo_path)
+    
+    from lib.config import cfg
+    from lib.models import get_net
+    
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    yolop_model = get_net(cfg)
+    checkpoint = torch.load('models/yolop/yolopx.pth', map_location=device)
+    yolop_model.load_state_dict(checkpoint['state_dict'])
+    yolop_model = yolop_model.to(device)
+    yolop_model.eval()
+    
+    normalize = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], 
+        std=[0.229, 0.224, 0.225]
+    )
+    yolop_transforms = transforms.Compose([
+        transforms.ToTensor(),
+        normalize,
+    ])
+    
+    local_models['yolop_model'] = yolop_model
+    local_models['device'] = device
+    local_models['yolop_transforms'] = yolop_transforms
+    print("loaded yolop successfully.")
+except Exception as e:
+    print(f"Warning: YOLOP utilities not found: {e}")
+
+import sys
+sys.modules['__main__'].MODELS = local_models
+
+from src.perception.yolop.main import process_frame as yolop_process
+from src.perception.object_detection.main import process_frame as object_process
+from src.perception.traffic_light_detection.main import process_frame as tl_process
+from src.perception.sign_detection.main import process_frame as sign_process
+from src.perception.lane_detection.main import process_frame_cv as cv_lane_process
+from src.perception.lane_detection.visualization import create_mask_overlay
 
 from src.sensor_fusion.lidar.main import process_frame as lidar_process_frame
 from src.sensor_fusion.radar.main import process_frame as radar_process_frame
@@ -70,9 +126,9 @@ def get_timestamp_ns():
 
 def load_config():
     """Load all configuration files."""
-    config_path = os.path.join(os.path.dirname(__file__), 'config')
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config')
     
-    with open(os.path.join(config_path, 'beamng_sim.yaml'), 'r') as f:
+    with open(os.path.join(config_path, 'beamng.yaml'), 'r') as f:
         beamng_config = yaml.safe_load(f)
     with open(os.path.join(config_path, 'scenarios.yaml'), 'r') as f:
         scenarios_config = yaml.safe_load(f)
@@ -389,22 +445,23 @@ def main():
     """
     Main function to run the simulation.
     """
+    # bypass aggregator setup for now
 
-    print("Initializing aggregator client")
-    perception_client = PerceptionClient(
-        host='localhost',
-        service_ports={
-            'cv_lane_detection': 4777,
-            'object_detection': 5777,
-            'traffic_light_detection': 6777,
-            'sign_detection': 7777,
-            'sign_classification': 8777,
-            'yolop': 9777
-        },
-        timeout=2.0,
-        auto_health_check=True
-    )
-    print("Aggregator ready\n")
+    # print("Initializing aggregator client")
+    # perception_client = PerceptionClient(
+    #     host='localhost',
+    #     service_ports={
+    #         'cv_lane_detection': 4777,
+    #         'object_detection': 5777,
+    #         'traffic_light_detection': 6777,
+    #         'sign_detection': 7777,
+    #         'sign_classification': 8777,
+    #         'yolop': 9777
+    #     },
+    #     timeout=2.0,
+    #     auto_health_check=True
+    # )
+    # print("Aggregator ready\n")
 
 
     # Change map/scenario here: use map_name='west_coast_usa' or 'italy', scenario_type='highway' or 'city'
@@ -412,7 +469,7 @@ def main():
     beamng, scenario, vehicle, camera, lidar, radars, gps, imu, vehicle_model = sim_setup(
         map_name='italy', 
         scenario_type='highway', 
-        vehicle_name='q8_andronisk'
+        vehicle_name='etk800'
     )
     print("Simulation setup complete")
 
@@ -466,9 +523,18 @@ def main():
         print(f"Traffic setup error: {e}")
 
     # Load control parameters from config
-    _, _, _, control, perception_config = load_config()
+    beamng_cfg, _, _, control, perception_config = load_config()
     control_cfg = control['control']
     perception_cfg = perception_config['perception']
+    
+    # load perception module flags from beamng config
+    perception_flags = beamng_cfg.get('perception', {})
+    enable_cv_lane = perception_flags.get('enable_cv_lane_detection', True)
+    enable_obj_det = perception_flags.get('enable_object_detection', True)
+    enable_tl_det = perception_flags.get('enable_traffic_light_detection', True)
+    enable_sign_det = perception_flags.get('enable_sign_detection', True)
+    enable_yolop_flag = perception_flags.get('enable_yolop', True)
+    print(f"perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} yolop:{enable_yolop_flag}")
 
     steering_pid = PIDController(**control_cfg['steering_pid'])
     max_steering_change = control_cfg['max_steering_change']
@@ -521,61 +587,93 @@ def main():
                 continue
 
             # Lane Detection
+            # bypassed docker aggregation, checks flags for each module
             try:
-                agg_result = perception_client.process_frame(
-                    frame=img,
-                    speed_kph=speed_kph,
-                    timestamp_ns=get_timestamp_ns(),
-                    vehicle_pos=car_pos,
-                    vehicle_direction=direction
-                )
+                start_proc = time.time()
+                img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
                 
-                processing_time_ms = agg_result.processing_time_ms
-                logger.info(f"Aggregation latency: {processing_time_ms:.1f}ms")
+                # conditional execution based on perception flags
+                if enable_obj_det:
+                    object_detections, _ = object_process(img_bgr, confidence_threshold=0.4, draw_detections=False)
+                else:
+                    object_detections = []
+                    
+                if enable_tl_det:
+                    traffic_light_detections, _ = tl_process(img_bgr, confidence_threshold=0.2, draw_detections=False)
+                else:
+                    traffic_light_detections = []
+                    
+                if enable_sign_det:
+                    sign_detections, _ = sign_process(img_bgr, confidence_threshold=0.45, draw_detections=False)
+                else:
+                    sign_detections = []
+                
+                if enable_cv_lane:
+                    cv_result_image, metrics, cv_confidence = cv_lane_process(
+                        img, 
+                        speed=speed_kph,
+                        previous_steering=previous_steering,
+                        vehicle_model='etk800',
+                        num_lanes=3
+                    )
+                else:
+                    cv_result_image = None
+                    metrics = {'deviation': 0.0, 'lane_center': 0.0, 'vehicle_center': 0.0, 'confidence': 0.0}
+                    cv_confidence = 0.0
+                
+                logger.info(f"Local processing latency: {(time.time()-start_proc)*1000:.1f}ms")
+                
+                # assign directly instead of extracting from aggregator result
+                lane_metrics = metrics
+                deviation = lane_metrics.get('deviation', 0.0)
+                smoothed_deviation = lane_metrics.get('smoothed_deviation', deviation)
+                effective_deviation = lane_metrics.get('effective_deviation', deviation)
+                lane_center = lane_metrics.get('lane_center', 0.0)
+                vehicle_center = lane_metrics.get('vehicle_center', 0.0)
+                fused_confidence = lane_metrics.get('confidence', 0.0)
                 
             except Exception as agg_e:
-                print(f"[CRITICAL] Aggregation error: {agg_e}")
+                print(f"[CRITICAL] Local perception error: {agg_e}")
                 import traceback
                 traceback.print_exc()
                 continue
 
-            # Lane Metric extraction
-            lane_metrics = perception_client.extract_lane_detection(agg_result)
-            deviation = lane_metrics['deviation']
-            smoothed_deviation = lane_metrics.get('smoothed_deviation', deviation)
-            effective_deviation = lane_metrics.get('effective_deviation', deviation)
-            lane_center = lane_metrics['lane_center']
-            vehicle_center = lane_metrics['vehicle_center']
-            fused_confidence = lane_metrics['confidence']
-
-            # Extract CV lane detection results
-            cv_lane_results = perception_client.extract_cv_lane_detection(agg_result)
-            cv_confidence = cv_lane_results['confidence']
-            cv_result_image = cv_lane_results['result_image']
-            
             # Display CV lane detection window
             if cv_result_image is not None:
                 cv2.imshow('CV Lane Detection', cv_result_image)
 
-            # Extract other detections
-            object_detections = perception_client.extract_object_detection(agg_result)
-            traffic_light_detections = perception_client.extract_traffic_light_detection(agg_result)
-            sign_detections = perception_client.extract_sign_detection(agg_result)
+            # added yolop process frame locally, checks flag
+            if enable_yolop_flag:
+                try:
+                    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                    yolop_detections, drivable_area, lane_lines = yolop_process(img_bgr, confidence_threshold=0.3)
+                except Exception as e:
+                    print(f"Error processing local yolop: {e}")
+                    drivable_area = None
+                    lane_lines = None
+            else:
+                drivable_area = None
+                lane_lines = None
 
-            # Extract YOLOP results
-            yolop_results = perception_client.extract_yolop(agg_result)
-            drivable_area = yolop_results['drivable_area']
-            lane_lines = yolop_results['lane_lines']
-
-            # Display drivable area window
-            if drivable_area is not None and drivable_area.size > 0:
-                drivable_area_img = cv2.resize(drivable_area.astype(np.uint8) * 255, (img.shape[1], img.shape[0]))
-                cv2.imshow('YOLOP - Drivable Area', drivable_area_img)
+            # display drivable area with proper overlay visualization
+            if drivable_area is not None:
+                try:
+                    if drivable_area.size > 0:
+                        img_bgr_for_display = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                        drivable_overlay = create_mask_overlay(img_bgr_for_display, drivable_area, alpha=0.3, color=(0, 255, 0))
+                        cv2.imshow('YOLOP - Drivable Area', drivable_overlay)
+                except Exception as e:
+                    print(f"Error displaying drivable area: {e}")
             
-            # Display lane lines window
-            if lane_lines is not None and lane_lines.size > 0:
-                lane_lines_img = cv2.resize(lane_lines.astype(np.uint8) * 255, (img.shape[1], img.shape[0]))
-                cv2.imshow('YOLOP - Lane Lines', lane_lines_img)
+            # display lane lines with proper overlay visualization
+            if lane_lines is not None:
+                try:
+                    if lane_lines.size > 0:
+                        img_bgr_for_display = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                        lane_lines_overlay = create_mask_overlay(img_bgr_for_display, lane_lines, alpha=0.4, color=(255, 0, 0))
+                        cv2.imshow('YOLOP - Lane Lines', lane_lines_overlay)
+                except Exception as e:
+                    print(f"Error displaying lane lines: {e}")
 
             steering = steering_pid.update(-effective_deviation, dt)
             steering = np.clip(steering, -1.0, 1.0)
@@ -864,8 +962,8 @@ def main():
         print(f"Error: {e}")
     finally:
         cv2.destroyAllWindows()
-        if 'perception_client' in locals():
-            perception_client.shutdown()
+        # if 'perception_client' in locals():
+        #     perception_client.shutdown()
         beamng.close()
 
 if __name__ == "__main__":

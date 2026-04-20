@@ -54,3 +54,7 @@ perception:
       Kp: 0.02
       Ki: 0.0
       Kd: 0.01
+
+    bsd:
+      min_distance: 0.5
+      max_distance: 8.0

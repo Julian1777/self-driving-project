@@ -1,4 +1,4 @@
-from src.sensor_fusion.lidar import collect_lidar_data
+from src.sensor_fusion.lidar.lidar import collect_lidar_data
 import numpy as np
 
 from .preprocessing import LidarPreprocessor

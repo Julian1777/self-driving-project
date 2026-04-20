@@ -1,16 +1,20 @@
 #!/bin/bash
 
-cd "$(dirname "$0")"
+# Get the project root directory (parent of scripts directory)
+PROJECT_ROOT="$(cd "$(dirname "$0")" && cd .. && pwd)"
+cd "$PROJECT_ROOT"
 
 python -c "
-from simulation.foxglove_integration.bridge_instance import bridge
 import sys
+sys.path.insert(0, '$PROJECT_ROOT')
+
+from simulation.foxglove_integration.bridge_instance import bridge
+import time
 
 try:
     bridge.start_server()
     bridge.initialize_channels()
     print('Foxglove ready - ws://localhost:8765')
-    import time
     time.sleep(2)
 except Exception as e:
     print(f'Error: {e}', file=sys.stderr)
