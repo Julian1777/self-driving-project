@@ -5,7 +5,7 @@ from src.perception.lane_detection.cv.thresholding import apply_thresholds_with_
 from src.perception.lane_detection.cv.perspective import debug_perspective_live, get_src_points, perspective_warp
 from src.perception.lane_detection.cv.lane_finder import get_histogram, detect_lane_type, fill_dashed_lane_gaps
 from src.perception.lane_detection.metrics import calculate_curvature_and_deviation
-from src.perception.lane_detection.visualization import draw_lane_overlay, add_text_overlay, create_mask_overlay
+from src.perception.lane_detection.visualization import draw_multiple_lanes_overlay, add_text_overlay
 
 from src.perception.lane_detection.cv.multi_lane.multi_lane_finder import detect_multiple_lanes
 from src.perception.lane_detection.cv.multi_lane.lane_selector import get_current_lane
@@ -25,7 +25,7 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
 
         src_points = get_src_points(img.shape, speed, previous_steering, vehicle_model=vehicle_model, calibration_data=calibration_data)
 
-        # Apply thresholding to FULL image
+        # Apply thresholding to full image
         binary_image, avg_brightness = apply_thresholds_with_voting(
             img, 
             src_points=None,
@@ -33,8 +33,8 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
             use_gradient=False
         )
         if debug_display:
-            cv2.imshow('Binary Image CV', binary_image*255 if binary_image.max()<=1 else binary_image)
-            cv2.waitKey(1)
+            binary_display_resized = cv2.resize(binary_image, (0, 0), fx=0.5, fy=0.5)
+            cv2.imshow('Binary Image CV', binary_display_resized)
 
         # Apply roi mask
         mask = np.zeros(binary_image.shape[:2], dtype=np.uint8)
@@ -54,7 +54,8 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
         
         if debug_display:
             warped_display = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
-            cv2.imshow('Warped Binary CV', warped_display)
+            warped_display_resized = cv2.resize(warped_display, (0, 0), fx=0.5, fy=0.5)
+            cv2.imshow('Warped Binary CV', warped_display_resized)
 
         lanes = None
         detected_num_lanes = num_lanes
@@ -82,17 +83,44 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
             }
             return result, metrics, 0.0
         
+        # show lanes in warped space
+        if debug_display:
+            warped_lane_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
+            colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
+            
+            for lane_idx, lane in enumerate(lanes):
+                ploty_viz = lane['ploty'].astype(np.int32)
+                left_fitx_viz = lane['left_fitx'].astype(np.int32)
+                right_fitx_viz = lane['right_fitx'].astype(np.int32)
+                color = colors[lane_idx % len(colors)]
+                
+                # clip
+                h, w = binary_warped.shape[:2]
+                left_fitx_viz = np.clip(left_fitx_viz, 0, w - 1)
+                right_fitx_viz = np.clip(right_fitx_viz, 0, w - 1)
+                ploty_viz = np.clip(ploty_viz, 0, h - 1)
+                
+                if len(left_fitx_viz) > 0 and len(ploty_viz) > 0:
+                    left_points = np.array([np.transpose(np.vstack([left_fitx_viz, ploty_viz]))], dtype=np.int32)
+                    cv2.polylines(warped_lane_img, left_points, isClosed=False, color=color, thickness=2)
+                
+                if len(right_fitx_viz) > 0 and len(ploty_viz) > 0:
+                    right_points = np.array([np.transpose(np.vstack([right_fitx_viz, ploty_viz]))], dtype=np.int32)
+                    cv2.polylines(warped_lane_img, right_points, isClosed=False, color=color, thickness=2)
+
+            warped_lanes_display_resized = cv2.resize(warped_lane_img, (0, 0), fx=0.5, fy=0.5)
+            cv2.imshow('Warped Lanes Detected', warped_lanes_display_resized)
+        
         # classify lanes and get current lane
         lane_info = get_current_lane(lanes, vehicle_center=None, image_width=img.shape[1])
         current_lane_data = lane_info['current_lane']
-        all_lanes = lane_info['classified_lanes']
+        all_lanes = lane_info['all_lanes']
 
         # extract left and right fitx
         # Use current lane or fallback to first lane
         if current_lane_data:
             lane_data = current_lane_data['lane_data']
         else:
-            # Fallback to first lane if no current lane detected
             first_lane = list(all_lanes.values())[0] if all_lanes else None
             if first_lane:
                 lane_data = first_lane['lane_data']
@@ -114,8 +142,8 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
         left_fit = lane_data['left_fit']
         right_fit = lane_data['right_fit']
         
-        # keep drawing method
-        result = draw_lane_overlay(img, binary_warped, Minv, left_fitx, right_fitx, ploty, deviation=0)
+        # drawl all detected lanes
+        result = draw_multiple_lanes_overlay(img, binary_warped, Minv, lanes, all_lanes_classified=all_lanes)
         
         # Calculate metrics
         current_fit = (left_fit, right_fit)

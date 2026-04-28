@@ -24,6 +24,9 @@ S_THRESH_DARK = (120, 255)
 S_THRESH_BRIGHT = (180, 255)
 S_THRESH_DEFAULT = (230, 255)
 
+# If B-channel has fewer pixels than this, exclude it from voting since b channel is good for yellow lanes but if there are none it dirupts the voting
+B_PIXEL_THRESHOLD = 100000
+
 
 def abs_sobel_thresh(image, orient='x', sobel_kernel=3, thresh=(0, 255)):
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -245,10 +248,21 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False):
     if include_gradient:
         grad_binary = gradient_thresholds(image, avg_brightness=avg_brightness)
     
+    b_pixel_count = np.sum(b_binary)
+    include_b_channel = b_pixel_count >= B_PIXEL_THRESHOLD
+    
     # l channel weighted 2x for white lane detection
-    features = [hsv_binary, l_binary, l_binary, b_binary, s_binary]
+    features = [hsv_binary, l_binary, l_binary, s_binary]
+    
+    if include_b_channel:
+        features.append(b_binary)
+        print(f"  Including LAB B: {b_pixel_count} pixels (>= {B_PIXEL_THRESHOLD} threshold)")
+    else:
+        print(f"  Excluding LAB B: {b_pixel_count} pixels (< {B_PIXEL_THRESHOLD} threshold) - likely no yellow lanes on this map")
+    
     if include_gradient:
         features.append(grad_binary)
+    
     n_features = len(features)
     
     if avg_brightness < MEDIUM_LOW_THRESHOLD:
@@ -258,12 +272,12 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False):
         n_vote = max(3, n_features // 2 + 1)
         print(f"Medium mode: voting {n_vote}/{n_features}")
     else:
-        n_vote = max(4, n_features - 1)
+        n_vote = max(3, n_features // 2 + 1)
         print(f"Bright mode: voting {n_vote}/{n_features}")
     
     result = majority_vote(features, n_vote)
     print(f"Majority vote pixels: {np.sum(result)}")
-    print(f"  HSV: {np.sum(hsv_binary)}, L (x2): {np.sum(l_binary)}, B: {np.sum(b_binary)}, S: {np.sum(s_binary)}" + (f", Grad: {np.sum(grad_binary)}" if include_gradient else ""))
+    print(f"  HSV: {np.sum(hsv_binary)}, L (x2): {np.sum(l_binary)}, S: {np.sum(s_binary)}, B: {np.sum(b_binary)}" + (f", Grad: {np.sum(grad_binary)}" if include_gradient else ""))
     return result
 
 
@@ -348,24 +362,31 @@ def apply_thresholds_with_voting(image, src_points=None, debug_display=False, us
         debug_img[(hsv_binary_uint8 == 1) & ((l_binary == 1) | (s_binary == 1))] = [0, 255, 255]
         
         hsv_display = np.dstack((hsv_binary_uint8, hsv_binary_uint8, hsv_binary_uint8)) * 255
-        cv2.imshow('HSV', hsv_display)
+        hsv_display_resized = cv2.resize(hsv_display, (0, 0), fx=0.5, fy=0.5)
+        cv2.imshow('HSV', hsv_display_resized)
         
         l_display = np.dstack((l_binary, l_binary, l_binary)) * 255
-        cv2.imshow('LAB L', l_display)
+        l_display_resized = cv2.resize(l_display, (0, 0), fx=0.5, fy=0.5)
+        cv2.imshow('LAB L', l_display_resized)
         
         s_display = np.dstack((s_binary, s_binary, s_binary)) * 255
-        cv2.imshow('HLS S', s_display)
+        s_display_resized = cv2.resize(s_display, (0, 0), fx=0.5, fy=0.5)
+        cv2.imshow('HLS S', s_display_resized)
         
         b_display = np.dstack((b_binary, b_binary, b_binary)) * 255
-        cv2.imshow('LAB B', b_display)
+        b_display_resized = cv2.resize(b_display, (0, 0), fx=0.5, fy=0.5)
+        cv2.imshow('LAB B', b_display_resized)
         
         if use_gradient:
             grad_display = np.dstack((grad_binary_uint8, grad_binary_uint8, grad_binary_uint8)) * 255
-            cv2.imshow('Gradient', grad_display)
+            grad_display_resized = cv2.resize(grad_display, (0, 0), fx=0.5, fy=0.5)
+            cv2.imshow('Gradient', grad_display_resized)
         
         combined_display = np.dstack((combined_binary, combined_binary, combined_binary)) * 255
-        cv2.imshow('Combined', combined_display)
+        combined_display_resized = cv2.resize(combined_display, (0, 0), fx=0.5, fy=0.5)
+        cv2.imshow('Combined', combined_display_resized)
         
-        cv2.imshow('Debug', debug_img)
+        debug_display_resized = cv2.resize(debug_img, (0, 0), fx=0.5, fy=0.5)
+        cv2.imshow('Debug', debug_display_resized)
     
     return combined_binary, avg_brightness

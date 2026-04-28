@@ -11,7 +11,7 @@ INTRINSIC_MATRIX = np.array([
     [0.0, 0.0, 1.0]
 ])
 
-DISTORTION_COEFFS = np.array([0.0, 0.0, 0.0, 0.0, 0.0])  # Assuming negligible distortion in virtual camera
+DISTORTION_COEFFS = np.array([0.0, 0.0, 0.0, 0.0, 0.0])  # assuming negligible distortion for simplicity
 
 CAMERA_CONFIGS = {
     'q8_andronisk': {
@@ -104,7 +104,6 @@ def get_dynamic_src_points(calibration_data, speed=0, cam_config=None):
     Generates SRC points based on PHYSICAL parameters, not hardcoded pixels.
     """
     if cam_config is None:
-        # Default fallback (e.g. for base car)
         cam_config = {'height': 1.4, 'pitch': 10} # meters, degrees
         
     mtx = calibration_data['mtx']
@@ -112,8 +111,8 @@ def get_dynamic_src_points(calibration_data, speed=0, cam_config=None):
     speed_norm = min(speed / 120.0, 1.0)
     look_ahead_start = 3.0 + (5.0 * speed_norm)
     look_ahead_end   = 15.0 + (20.0 * speed_norm)
-    lane_width_roi   = 3.5 
-    
+    lane_width_roi   = 7.0
+
     world_roi = [
         [-lane_width_roi, look_ahead_start], # BL
         [ lane_width_roi, look_ahead_start], # BR
@@ -266,5 +265,6 @@ def debug_perspective_live(img, speed_kph, previous_steering=0, vehicle_model='q
     cv2.putText(debug_img, "Green: Transform Area", (10, 125), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     
-    cv2.imshow('Perspective Transform Debug', debug_img)
+    debug_img_resized = cv2.resize(debug_img, (0, 0), fx=0.5, fy=0.5)
+    cv2.imshow('Perspective Transform Debug', debug_img_resized)
     cv2.waitKey(1)

@@ -20,16 +20,20 @@ def get_models_dict():
     except:
         return None
 
-def detect_objects(frame, model=None):
+def detect_objects(frame, model=None, confidence_threshold=0.40):
     if model is None:
         models_dict = get_models_dict()
         if models_dict is not None and 'vehicle' in models_dict:
             model = models_dict['vehicle']
         else:
-            model = YOLO(DETECTION_MODEL_PATH)
-            print(f"Warning: Loading vehicle detection model from scratch - slower!")
+            try:
+                model = YOLO(DETECTION_MODEL_PATH)
+                print(f"Warning: Loading vehicle detection model from scratch - slower!")
+            except Exception as e:
+                print(f"Error loading vehicle detection model: {e}")
+                return []
 
-    results = model(frame, conf=0.30)
+    results = model(frame, conf=confidence_threshold)
 
     detections = []
 

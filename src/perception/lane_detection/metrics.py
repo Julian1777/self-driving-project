@@ -37,6 +37,9 @@ def apply_deviation_deadzone_and_scaling(smoothed_deviation, dead_zone=0.1, max_
         effective_deviation: Processed deviation ready for control input
     """
 
+    if smoothed_deviation is None:
+        return 0.0
+    
     if abs(smoothed_deviation) < dead_zone:
         effective_deviation = 0.0
     else:

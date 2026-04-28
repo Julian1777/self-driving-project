@@ -127,20 +127,31 @@ def classify_sign_crop(sign_crop):
             'class_index': -1
         }
 
-def detect_classify_sign(frame):
-    models_dict = get_models_dict()
+def detect_classify_sign(frame, detection_model=None, classification_model=None):
+    if detection_model is None or classification_model is None:
+        models_dict = get_models_dict()
     
-    if models_dict is not None and 'sign_detect' in models_dict:
-        detection_model = models_dict['sign_detect']
-    else:
-        detection_model = YOLO(SIGN_MODEL_PATH)
-        print(f"Warning: Loading sign detection model from scratch - slower!")
+    if detection_model is None:
+        if models_dict is not None and 'sign_detect' in models_dict:
+            detection_model = models_dict['sign_detect']
+        else:
+            try:
+                detection_model = YOLO(SIGN_MODEL_PATH)
+                print(f"Warning: Loading sign detection model from scratch - slower!")
+            except Exception as e:
+                print(f"Error loading sign detection model: {e}")
+                return []
     
-    if models_dict is not None and 'sign_classify' in models_dict:
-        classification_model = models_dict['sign_classify']
-    else:
-        classification_model = tf.keras.models.load_model(SIGN_CLASSIFY_MODEL_PATH)
-        print(f"Warning: Loading sign classification model from scratch - slower!")
+    if classification_model is None:
+        if models_dict is not None and 'sign_classify' in models_dict:
+            classification_model = models_dict['sign_classify']
+        else:
+            try:
+                classification_model = tf.keras.models.load_model(SIGN_CLASSIFY_MODEL_PATH)
+                print(f"Warning: Loading sign classification model from scratch - slower!")
+            except Exception as e:
+                print(f"Error loading sign classification model: {e}")
+                return []
 
     results = detection_model(frame, conf=0.2)
 
@@ -287,8 +298,8 @@ def sign_classification_only(frame, bboxes=None):
     
     return classifications
 
-def sign_detection_classification(frame):
+def sign_detection_classification(frame, detection_model=None, classification_model=None):
     """
     Pure sign detection and classification.
     """
-    return detect_classify_sign(frame)
+    return detect_classify_sign(frame, detection_model=detection_model, classification_model=classification_model)

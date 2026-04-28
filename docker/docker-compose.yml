@@ -140,7 +140,7 @@ services:
       dockerfile: docker/dockerfiles/yolop/Dockerfile
     container_name: "visionpilot_yolop"
     environment:
-      - MODEL_PATH=/models/yolop/yolop.pt
+      - MODEL_PATH=/models/yolop/yolopx.pth
       - PYTHONUNBUFFERED=1
     ports:
       - "9777:9777"

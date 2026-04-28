@@ -2,19 +2,20 @@ from src.perception.traffic_light_detection.detect_classify import detect_traffi
 
 default_threshold = 0.2
 
-def process_frame(img, confidence_threshold=default_threshold, draw_detections=True):
+def process_frame(img, confidence_threshold=default_threshold, draw_detections=True, model=None):
     """
     Process traffic light detection with config-driven threshold.
     Args:
         img: Input image (numpy array)
         perception_cfg: Perception configuration dictionary
         draw_detections: Whether to draw bounding boxes on the image
+        model: Pre-loaded traffic light detection model
     Returns:
         tuple: (detections, result_img)
     """
     
     try:
-        detections = detect_traffic_lights(img)
+        detections = detect_traffic_lights(img, model=model)
         
         if not detections:
             detections = []

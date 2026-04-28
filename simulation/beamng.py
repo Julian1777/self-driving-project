@@ -79,7 +79,8 @@ from src.perception.object_detection.main import process_frame as object_process
 from src.perception.traffic_light_detection.main import process_frame as tl_process
 from src.perception.sign_detection.main import process_frame as sign_process
 from src.perception.lane_detection.main import process_frame_cv as cv_lane_process
-from src.perception.lane_detection.visualization import create_mask_overlay
+from src.perception.lane_detection.visualization import create_mask_overlay, draw_multiple_lanes_overlay
+from src.perception.lane_detection.cv.perspective import perspective_warp, get_src_points
 
 from src.sensor_fusion.lidar.main import process_frame as lidar_process_frame
 from src.sensor_fusion.radar.main import process_frame as radar_process_frame
@@ -89,7 +90,7 @@ from simulation.foxglove_integration.bridge_instance import bridge
 
 logger = logging.getLogger(__name__)
 
-MODELS = {}
+# removed redundant MODELS = {} 
 
 def yaw_to_quat(yaw_deg):
     """
@@ -308,7 +309,7 @@ def sim_setup(map_name='west_coast_usa', scenario_type='highway', vehicle_name='
                 print(f"{sensor_key} initialization error: {e}")
                 gps_sensors[sensor_key] = None
 
-    # Initialize IMU sensors - support multiple IMUs (imu_1, imu_2, etc.)
+    # Initialize IMU sensors
     for sensor_key, sensor_cfg in sensors.items():
         if sensor_key.startswith('imu_') and sensor_cfg.get('enabled', False):
             try:
@@ -534,7 +535,8 @@ def main():
     enable_tl_det = perception_flags.get('enable_traffic_light_detection', True)
     enable_sign_det = perception_flags.get('enable_sign_detection', True)
     enable_yolop_flag = perception_flags.get('enable_yolop', True)
-    print(f"perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} yolop:{enable_yolop_flag}")
+    debug_cv_lane = perception_flags.get('debug_cv_lane_detection', False)
+    print(f"perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} yolop:{enable_yolop_flag} debug:{debug_cv_lane}")
 
     steering_pid = PIDController(**control_cfg['steering_pid'])
     max_steering_change = control_cfg['max_steering_change']
@@ -567,8 +569,12 @@ def main():
             except Exception as e:
                 print(f"Simulation step error: {e}")
 
-            images = camera.stream()
-            img = np.array(images['colour'])
+            images = camera.poll()
+            if images is None or 'colour' not in images:
+                print(f"Invalid camera poll response")
+                continue
+            
+            img = np.array(images['colour'], dtype=np.uint8)
 
             # Send camera image to Foxglove
             try:
@@ -594,17 +600,17 @@ def main():
                 
                 # conditional execution based on perception flags
                 if enable_obj_det:
-                    object_detections, _ = object_process(img_bgr, confidence_threshold=0.4, draw_detections=False)
+                    object_detections, _ = object_process(img_bgr, confidence_threshold=0.4, draw_detections=False, model=local_models.get('vehicle'))
                 else:
                     object_detections = []
                     
                 if enable_tl_det:
-                    traffic_light_detections, _ = tl_process(img_bgr, confidence_threshold=0.2, draw_detections=False)
+                    traffic_light_detections, _ = tl_process(img_bgr, confidence_threshold=0.2, draw_detections=False, model=local_models.get('traffic_light'))
                 else:
                     traffic_light_detections = []
                     
                 if enable_sign_det:
-                    sign_detections, _ = sign_process(img_bgr, confidence_threshold=0.45, draw_detections=False)
+                    sign_detections, _ = sign_process(img_bgr, confidence_threshold=0.45, draw_detections=False, detection_model=local_models.get('sign_detect'), classification_model=local_models.get('sign_classify'))
                 else:
                     sign_detections = []
                 
@@ -613,6 +619,7 @@ def main():
                         img, 
                         speed=speed_kph,
                         previous_steering=previous_steering,
+                        debug_display=debug_cv_lane,
                         vehicle_model='etk800',
                         num_lanes=3
                     )
@@ -626,11 +633,24 @@ def main():
                 # assign directly instead of extracting from aggregator result
                 lane_metrics = metrics
                 deviation = lane_metrics.get('deviation', 0.0)
+                # ensure deviation is not None
+                if deviation is None:
+                    deviation = 0.0
                 smoothed_deviation = lane_metrics.get('smoothed_deviation', deviation)
+                if smoothed_deviation is None:
+                    smoothed_deviation = deviation
                 effective_deviation = lane_metrics.get('effective_deviation', deviation)
+                if effective_deviation is None:
+                    effective_deviation = deviation
                 lane_center = lane_metrics.get('lane_center', 0.0)
+                if lane_center is None:
+                    lane_center = 0.0
                 vehicle_center = lane_metrics.get('vehicle_center', 0.0)
+                if vehicle_center is None:
+                    vehicle_center = 0.0
                 fused_confidence = lane_metrics.get('confidence', 0.0)
+                if fused_confidence is None:
+                    fused_confidence = 0.0
                 
             except Exception as agg_e:
                 print(f"[CRITICAL] Local perception error: {agg_e}")
@@ -640,41 +660,77 @@ def main():
 
             # Display CV lane detection window
             if cv_result_image is not None:
-                cv2.imshow('CV Lane Detection', cv_result_image)
+                cv_disp = cv2.cvtColor(cv_result_image, cv2.COLOR_RGB2BGR) if len(cv_result_image.shape) == 3 else cv_result_image
+                cv_disp = cv2.resize(cv_disp, (0, 0), fx=0.5, fy=0.5)
+                cv2.imshow('CV Lane Detection', cv_disp)
 
             # added yolop process frame locally, checks flag
             if enable_yolop_flag:
                 try:
                     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                    yolop_detections, drivable_area, lane_lines = yolop_process(img_bgr, confidence_threshold=0.3)
+                    yolop_detections, drivable_area, yolop_lanes = yolop_process(
+                        img_bgr, 
+                        confidence_threshold=0.3, 
+                        model=local_models.get('yolop_model'), 
+                        device=local_models.get('device'), 
+                        transforms=local_models.get('yolop_transforms'),
+                        speed=speed_kph,
+                        calibration_data=None,
+                        vehicle_model='etk800'
+                    )
                 except Exception as e:
                     print(f"Error processing local yolop: {e}")
                     drivable_area = None
-                    lane_lines = None
+                    yolop_lanes = None
             else:
                 drivable_area = None
-                lane_lines = None
+                yolop_lanes = None
 
-            # display drivable area with proper overlay visualization
+            # display drivable area and lanes with proper overlay visualization
+            img_bgr_for_display = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            yolop_displayed = False
+            
+            img_height = img_bgr_for_display.shape[0]
+            
             if drivable_area is not None:
                 try:
                     if drivable_area.size > 0:
-                        img_bgr_for_display = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                        drivable_overlay = create_mask_overlay(img_bgr_for_display, drivable_area, alpha=0.3, color=(0, 255, 0))
-                        cv2.imshow('YOLOP - Drivable Area', drivable_overlay)
+                        drivable_area_roi = drivable_area.copy()
+                        img_bgr_for_display = create_mask_overlay(img_bgr_for_display, drivable_area_roi, alpha=0.1, color=(0, 255, 0))
+                        yolop_displayed = True
                 except Exception as e:
                     print(f"Error displaying drivable area: {e}")
             
-            # display lane lines with proper overlay visualization
-            if lane_lines is not None:
+            if yolop_lanes is not None and len(yolop_lanes) > 0:
                 try:
-                    if lane_lines.size > 0:
-                        img_bgr_for_display = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                        lane_lines_overlay = create_mask_overlay(img_bgr_for_display, lane_lines, alpha=0.4, color=(255, 0, 0))
-                        cv2.imshow('YOLOP - Lane Lines', lane_lines_overlay)
+                    src_points = get_src_points(img.shape, speed_kph, previous_steering, vehicle_model='etk800', calibration_data=None)
+                    dummy_warped = np.zeros((img.shape[0]//2, img.shape[1]//2), dtype=np.uint8)
+                    _, Minv = perspective_warp(dummy_warped, speed=speed_kph, calibration_data=None, vehicle_model='etk800')
+                    
+                    img_bgr_for_display = draw_multiple_lanes_overlay(
+                        img_bgr_for_display, 
+                        dummy_warped, 
+                        Minv, 
+                        yolop_lanes,
+                        all_lanes_classified=None
+                    )
+                    yolop_displayed = True
                 except Exception as e:
-                    print(f"Error displaying lane lines: {e}")
+                    print(f"Error drawing YOLOP lanes: {e}")
+                    
+            if yolop_displayed:
+                yolop_disp = cv2.resize(img_bgr_for_display, (0, 0), fx=0.5, fy=0.5)
+                cv2.imshow('YOLOP - Drivable Area & Lanes', yolop_disp)
 
+            # Draw and show Combined object detections window
+            try:
+                img_bgr_for_obj = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                combined_img = draw_combined_detections(img_bgr_for_obj, sign_detections, object_detections, traffic_light_detections)
+                combined_disp = cv2.resize(combined_img, (0, 0), fx=0.5, fy=0.5)
+                cv2.imshow('Object Detections', combined_disp)
+            except Exception as draw_e:
+                print(f"Error drawing detections: {draw_e}")
+                
             steering = steering_pid.update(-effective_deviation, dt)
             steering = np.clip(steering, -1.0, 1.0)
             steering_change = steering - previous_steering
@@ -690,19 +746,11 @@ def main():
             # Calculate vehicle yaw from direction
             car_yaw = np.arctan2(-direction[1], -direction[0])
             
-            # LiDAR pose (offset from base_link + vehicle rotation/position)
             lidar_offset = np.array([0.0, -0.35, 1.425])
             car_quat = yaw_rad_to_quaternion(car_yaw)
             rotation = R.from_quat([car_quat[0], car_quat[1], car_quat[2], car_quat[3]])
             lidar_pos_in_map = rotation.apply(lidar_offset) + car_pos
             lidar_yaw = car_yaw  # LiDAR has same yaw as vehicle
-
-
-            if step_i % 80 == 0:
-                try:
-                    combined_img = draw_combined_detections(img, sign_detections, object_detections, traffic_light_detections)
-                except Exception as draw_e:
-                    print(f"Error drawing detections: {draw_e}")
 
             try:
                 lidar_lane_boundaries, filtered_points = lidar_process_frame(lidar, beamng=beamng, speed=speed_kph, debug_window=None, vehicle=vehicle, car_position=car_pos, car_direction=direction)
@@ -785,56 +833,6 @@ def main():
             step_i += 1
 
             try:
-                timestamp_ns = get_timestamp_ns()
-                lane_message = {
-                    "timestamp": timestamp_ns,
-                    "lane_center": float(lane_center) if lane_center is not None else 0.0,
-                    "vehicle_center": float(vehicle_center) if vehicle_center is not None else 0.0,
-                    "deviation": float(deviation) if deviation is not None else 0.0,
-                    "confidence": float(fused_confidence)
-                }
-                if lidar_lane_boundaries and 'left_lane_points' in lidar_lane_boundaries:
-                    lane_message["left_lane_points"] = [
-                        {"x": float(p[0]), "y": float(p[1]), "z": float(p[2]) if len(p) > 2 else 0.0}
-                        for p in lidar_lane_boundaries['left_lane_points']
-                    ]
-                if lidar_lane_boundaries and 'right_lane_points' in lidar_lane_boundaries:
-                    lane_message["right_lane_points"] = [
-                        {"x": float(p[0]), "y": float(p[1]), "z": float(p[2]) if len(p) > 2 else 0.0}
-                        for p in lidar_lane_boundaries['right_lane_points']
-                    ]
-                bridge.lane_channel.log(lane_message)
-                
-                # Send lane paths
-                try:
-                    timestamp_ns = get_timestamp_ns()
-                    if lidar_lane_boundaries and 'left_lane_points' in lidar_lane_boundaries:
-                        left_points = np.array(lidar_lane_boundaries['left_lane_points'])
-                        if len(left_points) > 0:
-                            bridge.send_lane_path(
-                                left_points,
-                                timestamp_ns=timestamp_ns,
-                                lane_id="left_lane",
-                                color=Color(r=1.0, g=0.0, b=0.0, a=1.0),  # Red
-                                thickness=0.2
-                            )
-                    
-                    if lidar_lane_boundaries and 'right_lane_points' in lidar_lane_boundaries:
-                        right_points = np.array(lidar_lane_boundaries['right_lane_points'])
-                        if len(right_points) > 0:
-                            bridge.send_lane_path(
-                                right_points,
-                                timestamp_ns=timestamp_ns,
-                                lane_id="right_lane",
-                                color=Color(r=0.0, g=0.0, b=1.0, a=1.0),  # Blue
-                                thickness=0.2
-                            )
-                except Exception as lane_visual_e:
-                    print(f"Error sending lane visualization: {lane_visual_e}")
-            except Exception as lane_det_send_e:
-                print(f"Error sending lane detection to Foxglove: {lane_det_send_e}")
-
-            try:
                 # Send vehicle control state (steering, throttle, brake)
                 timestamp_ns = get_timestamp_ns()
                 bridge.send_vehicle_control(
@@ -883,24 +881,6 @@ def main():
                 )
             except Exception as tf_send_e:
                 print(f"Error publishing TF tree to Foxglove: {tf_send_e}")
-
-            try:
-                car_yaw = np.arctan2(-direction[1], -direction[0])
-                quat_x, quat_y, quat_z, quat_w = yaw_rad_to_quaternion(car_yaw)
-                timestamp_ns = get_timestamp_ns()
-                bridge.send_vehicle_3d(
-                    timestamp_ns=timestamp_ns,
-                    x=car_pos[0],
-                    y=car_pos[1],
-                    z=car_pos[2],
-                    quat_x=quat_x,
-                    quat_y=quat_y,
-                    quat_z=quat_z,
-                    quat_w=quat_w,
-                    frame_id="map"
-                )
-            except Exception as vehicle_3d_send_e:
-                print(f"Error sending vehicle 3D model to Foxglove: {vehicle_3d_send_e}")
 
             try:
                 # Send LiDAR point cloud

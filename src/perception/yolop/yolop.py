@@ -5,7 +5,6 @@ import numpy as np
 import torchvision.transforms as transforms
 from config.config import YOLOP_MODEL
 
-# Try importing YOLOP libraries
 try:
     from yolop.lib.config import cfg
     from yolop.lib.models import get_net
@@ -29,30 +28,48 @@ def get_models_dict():
     except:
         return None
 
-def detect_yolop(frame_bgr, confidence_threshold=0.3):
-    models_dict = get_models_dict()
+def detect_yolop(frame_bgr, confidence_threshold=0.3, model=None, device=None, transforms=None):
+    if model is None or device is None or transforms is None:
+        models_dict = get_models_dict()
     
-    if models_dict is not None and 'yolop_model' in models_dict:
-        model = models_dict['yolop_model']
-        device = models_dict.get('device', torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
-        transforms_comp = models_dict.get('yolop_transforms')
+    if model is None:
+        if models_dict is not None and 'yolop_model' in models_dict:
+            model = models_dict['yolop_model']
+        else:
+            print("Warning: Loading YOLOP model from scratch - slower!")
+            
+            try:
+                from lib.models import get_net
+                from lib.config import cfg
+            except ImportError:
+                print("Could not import get_net for fallback model loading!")
+                
+            model = get_net(cfg)
+            checkpoint = torch.load(str(YOLOP_MODEL), map_location=device if device else torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
+            model.load_state_dict(checkpoint['state_dict'])
+            model = model.to(device if device else torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
+            model.eval()
+    
+    if device is None:
+        if models_dict is not None and 'device' in models_dict:
+            device = models_dict['device']
+        else:
+            device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    
+    if transforms is None:
+        if models_dict is not None and 'yolop_transforms' in models_dict:
+            transforms_comp = models_dict['yolop_transforms']
+        else:
+            normalize = transforms.Normalize(
+                mean=[0.485, 0.456, 0.406], 
+                std=[0.229, 0.224, 0.225]
+            )
+            transforms_comp = transforms.Compose([
+                transforms.ToTensor(),
+                normalize,
+            ])
     else:
-        print("Warning: Loading YOLOP model from scratch - slower!")
-        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        model = get_net(cfg)
-        checkpoint = torch.load(str(YOLOP_MODEL), map_location=device)
-        model.load_state_dict(checkpoint['state_dict'])
-        model = model.to(device)
-        model.eval()
-        
-        normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], 
-            std=[0.229, 0.224, 0.225]
-        )
-        transforms_comp = transforms.Compose([
-            transforms.ToTensor(),
-            normalize,
-        ])
+        transforms_comp = transforms
     
     img_ori = frame_bgr
     img_resized = cv2.resize(img_ori, (640, 640), interpolation=cv2.INTER_LINEAR)

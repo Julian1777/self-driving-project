@@ -2,9 +2,9 @@ from src.perception.sign_detection.detect_classify import sign_detection_classif
 
 default_threshold = 0.45
 
-def process_frame(img, confidence_threshold=default_threshold, draw_detections=True, ):
+def process_frame(img, confidence_threshold=default_threshold, draw_detections=True, detection_model=None, classification_model=None):
     try:
-        detections = sign_detection_classification(img)
+        detections = sign_detection_classification(img, detection_model=detection_model, classification_model=classification_model)
         
         if not detections:
             detections = []
