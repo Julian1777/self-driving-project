@@ -5,9 +5,7 @@
 # VisionPilot: Autonomous Driving Simulation, Computer Vision & Real-Time Perception (BeamNG.tech)
 
 <p align="center" style="margin-bottom:0;">
-  <a href="https://star-history.com/#visionpilot-project/VisionPilot&Date">
-    <img src="https://api.star-history.com/svg?repos=visionpilot-project/VisionPilot&type=Date" alt="Star History Chart" height="300" />
-  </a>
+  <img src="media/demo_gifs/combined_demos.gif" alt="Combined demo preview" width="560" />
 </p>
 
 ## Overview
@@ -62,6 +60,9 @@ A modular Python project for autonomous driving research and prototyping, fully 
 
 
 ## Demos
+
+<details>
+<summary>Open demo GIF gallery</summary>
 
 ### Emergency Braking (AEB) Demo
 
@@ -150,6 +151,8 @@ See real-time image segmentation using front and rear cameras:
 **Extended Demo:** [Watch the full video here](https://youtu.be/4PAqcUKqn6c?si=UHw-mw7iLZKGXvav)
 
 > More demo videos and visualizations will be added as features are completed.
+
+</details>
 
 ## Sensor Suite
 
