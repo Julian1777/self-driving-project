@@ -6,17 +6,16 @@ etk800:
     pos: [ 0.02461, -0.4155, 1.36 ]
     dir: [ 0.001929, -1, -0.00476 ]
     up: [ 0.00476, -0.0001314, 1 ]
-    resolution: [ 1920, 1080 ] # 1080p for HD mapping
+    resolution: [ 1920, 1080 ]
     field_of_view_y: 70
     near_far_planes: [ 0.05, 200 ]
     is_using_shared_memory: false
     is_render_colours: true
     is_render_annotations: false
-    is_render_depth: true
+    is_render_depth: false
     is_depth_inverted: false
-    is_visualised: true
+    is_visualised: false
     is_streaming: true
-    integer_depth: true
     postprocess_depth: false
     is_static: false
     is_dir_world_space: false
@@ -61,6 +60,7 @@ etk800:
     azimuth_bins: 64
     vel_bins: 32
     half_angle_deg: 9
+    is_visualised: false
 
   radar_rear_left:
     name: "radar_rear_left"
@@ -80,6 +80,7 @@ etk800:
     azimuth_bins: 64
     vel_bins: 32
     half_angle_deg: 9
+    is_visualised: false
 
   radar_rear_right:
     name: "radar_rear_right"
@@ -99,6 +100,7 @@ etk800:
     azimuth_bins: 32
     vel_bins: 16
     half_angle_deg: 30
+    is_visualised: false
 
   gps_front:
     name: "gps_front"
@@ -109,10 +111,10 @@ etk800:
     ref_lat: 51.5074 # Berlin coordinates (example)
     ref_lon: 13.1856
     is_send_immediately: false
-    is_visualised: false
     is_snapping_desired: false
     is_force_inside_triangle: false
     is_dir_world_space: false
+    is_visualised: false
 
   gps_rear:
     name: "gps_rear"
@@ -123,10 +125,10 @@ etk800:
     ref_lat: 51.5074 # Berlin coordinates (example)
     ref_lon: 13.1856
     is_send_immediately: false
-    is_visualised: false
     is_snapping_desired: false
     is_force_inside_triangle: false
     is_dir_world_space: false
+    is_visualised: false
 
   imu_1:
     name: "imu_1"
@@ -138,10 +140,10 @@ etk800:
     is_send_immediately: false
     is_using_gravity: false
     is_allow_wheel_nodes: false
-    is_visualised: false
     is_snapping_desired: false
     is_force_inside_triangle: false
     is_dir_world_space: false
+    is_visualised: false
 
   powertrain_info:
     name: "powertrain_info"
@@ -164,6 +166,7 @@ q8_andronisk:
     is_streaming: true
     is_render_colours: true
     is_render_depth: true
+    is_visualised: false
 
   lidar_top:
     name: "lidar_top"
@@ -199,10 +202,11 @@ q8_andronisk:
     azimuth_bins: 64
     vel_bins: 32
     half_angle_deg: 9
+    is_visualised: false
 
   radar_rear_left:
     name: "radar_rear_left"
-    enabled: false
+    enabled: true
     requested_update_time: 0.05
     pos: [ 0.808, 2.305, 0.673 ]
     dir: [ 0.2382, 0.9709, 0.02624 ]
@@ -218,10 +222,11 @@ q8_andronisk:
     azimuth_bins: 64
     vel_bins: 32
     half_angle_deg: 9
+    is_visualised: false
 
   radar_rear_right:
     name: "radar_rear_right"
-    enabled: false
+    enabled: true
     requested_update_time: 0.05
     pos: [ -0.7882, 2.332, 0.673 ]
     dir: [ -0.2416, 0.9694, 0.04251 ]

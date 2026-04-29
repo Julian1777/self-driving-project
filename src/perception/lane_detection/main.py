@@ -73,7 +73,7 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
         
 
         if lanes is None:
-            print("multi-lane detection failed")
+            print("[Multi-Lane] detection failed")
             result = img.copy()
             metrics = {
                 'current_lane': None,

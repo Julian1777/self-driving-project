@@ -10,11 +10,26 @@
   </a>
 </p>
 
+## Overview
+
+A modular Python project for autonomous driving research and prototyping, fully integrated with the BeamNG.tech simulator and Foxglove visualization. This system combines traditional computer vision and state-of-the-art deep learning (CNN, YOLO & YOLOP) with real-time sensor fusion and autonomous vehicle control to tackle:
+
+- **Multi-Lane Detection**: YOLOP, Traditional CV
+- **Traffic Sign**: Classification & Detection
+- **Traffic Lights**: Classification & Detection
+- **Object Detection**: Vehicles, pedestrians, cyclists and more
+- **Multi-Sensor Fusion**: Camera, Lidar, Radar, GPS, IMU
+<!-- - **Microservices Architecture**: Containerized multi-model inference (Docker), orchestrated via central aggregator -->
+- **Real-Time Control**: PID steering, cruise control (CC), automatic emergency braking (AEB)
+- **Visualization**: Real-time monitoring with Foxglove WebSocket + multiple CV windows
+- **Configuration System**: YAML-based modular settings
+- **Drive Logging**: Full telemetry and drive logs
+  
 ## Table of Contents
 
 - [VisionPilot: Autonomous Driving Simulation, Computer Vision \& Real-Time Perception (BeamNG.tech)](#visionpilot-autonomous-driving-simulation-computer-vision--real-time-perception-beamngtech)
-  - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
+  - [Table of Contents](#table-of-contents)
   - [Demos](#demos)
     - [Emergency Braking (AEB) Demo](#emergency-braking-aeb-demo)
     - [Blind Spot Detection (BSD) Demo](#blind-spot-detection-bsd-demo)
@@ -44,20 +59,7 @@
     - [BeamNG.tech Citation](#beamngtech-citation)
   - [License](#license)
 
-## Overview
 
-A modular Python project for autonomous driving research and prototyping, fully integrated with the BeamNG.tech simulator and Foxglove visualization. This system combines traditional computer vision and state-of-the-art deep learning (CNN, YOLO & YOLOP) with real-time sensor fusion and autonomous vehicle control to tackle:
-
-- **Lane Detection**: YOLOP (unified), Traditional CV (multi-lane)
-- **Traffic Sign**: Classification & detection (CNN, YOLO)
-- **Traffic Lights**: Classification & detection (YOLO)
-- **Object Detection**: Vehicles, pedestrians, cyclists and more (YOLO & YOLOP)
-- **Multi-Sensor Fusion**: Camera, Lidar, Radar, GPS, IMU
-- **Microservices Architecture**: Containerized multi-model inference (Docker), orchestrated via central aggregator
-- **Real-Time Control**: PID steering, cruise control (CC), automatic emergency braking (AEB)
-- **Visualization**: Real-time monitoring with Foxglove WebSocket + multiple CV windows
-- **Configuration System**: YAML-based modular settings
-- **Drive Logging**: Full telemetry and drive logs
 
 ## Demos
 
@@ -226,21 +228,19 @@ Extract individual results + visualize
 
 ### Perception
 
-- [x] Sign classification & Detection (CNN / YOLOv11m)
-- [x] Traffic light classification & Detection (CNN / YOLOv11m)
-- [x] Lane detection Fusion (SCNN / CV)
+- [x] Sign classification & Detection (CNN / YOLO)
+- [x] Traffic light classification & Detection (CNN / YOLO)
+- [x] Lane detection Fusion (YOLOP / CV)
 - [x] 🔥🔥 YOLOP integration
   - [x] Drivable area segmentation
   - [x] Lane detection (segmentation output)
   - [x] Object detection
-- [x] CV Lane Detection Service (OpenCV-based multi-lane detection)
-- [x] Advanced lane detection using OpenCV (robust highway, lighting, outlier handling)
+- [x] CV Lane Detection (Traditional Computer Vision)
 - [x] Integrate Majority Voting system for CV
 - [x] Lighting Condition Detection
 - [x] ⭐ 💤 Semantic Segmentatation (Already built not implemented here yet)
   - [ ]  Panoptic segmentation (instance + semantic)
-- [ ] Depth Estimation (Monocular for obstacle distance)
-- [x] ⭐ Real-Time Object Detection (Cars, Trucks, Buses, Pedestrians, Cyclists) (Trained)
+- [x] Real-Time Object Detection (Cars, Trucks, Buses, Pedestrians, Cyclists)
 - [ ] 🔥 Speed Estimation using detection from camera and lidar
   - [ ] Multiple Object Tracking (MOT)
 - [x] 🔥🔥 Handle dashed lines better in lane detection
@@ -248,8 +248,7 @@ Extract individual results + visualize
 - [ ] 🔥 Lidar Object Detection 3D
 - [ ] 💤 Ocluded Object Detection (Detect objects that are partially blocked or not visible in the camera view using radar/lidar)
 - [x] Detect multiple lanes
-- [ ] 🔥 Classify lane types
-- [ ] 💤💤 Multi Camera Setup (Will implement after all other camera-based features are finished)
+- [ ] 💤 Multi Camera Setup (Will implement after all other camera-based features are finished)
 - [ ] 💤 Overtaking, Merging (Will be part of Path Planning)
 
 ### Sensor Fusion & Calibration
@@ -281,7 +280,7 @@ Extract individual results + visualize
 - [ ] Global Path planning
 - [ ] Local Path planning
 - [ ] 🔥 Lane Change Logic
-  - [ ] Change Blindspots before lane change
+  - [ ] Check Blindspots before lane change
   - [ ] Signal Lane Change
 - [ ] Parking Logic (Path finding / Parallel or Perpendicular)
 - [ ] 💤💤 U-Turn Logic (3-point turn)
@@ -291,7 +290,6 @@ Extract individual results + visualize
 
 - [x] Integrate and test in BeamNG.tech simulation
 - [x] Modularize and clean up BeamNG.tech pipeline
-- [x] Tweak lane detection parameters and thresholds
 - [ ] Fog Weather conditions
 - [ ] Traffic scenarios: driving in heavy, moderate, and light traffic
 - [ ] Test all Systems in different lighting conditions (Day, Night, Dawn/Dusk, Tunnel)
@@ -349,12 +347,10 @@ Extract individual results + visualize
 
 ## Known Limitations
 
-- **Tunnel/Low-Light Scenarios**: Camera depth perception fails below certain lighting thresholds
+- **Tunnel/Low-Light Scenarios**: Camera perception fails below certain lighting thresholds
 - **Multi-Camera Support**: Single front-facing camera only (future roadmap)
-- **Dashed Lane Detection**: Requires improvement for better accuracy
-- **PID Controller Tuning**: May oscillate on aggressive maneuvers
+- **PID Controller Tuning**: May oscillate on tight curves
 - **Real-World Testing**: Only validated in simulation (BeamNG.tech), for now...
-- **Service Latency**: Network overhead between BeamNG and containerized services (~50-100ms per aggregation)
 
 ## Credits
 

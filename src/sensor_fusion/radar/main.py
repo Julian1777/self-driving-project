@@ -171,7 +171,7 @@ def process_bsd_frame(radar_sensor, radar_cfg):
         radar_data = radar_sensor.poll()
         raw_points = get_raw_points(radar_data)
     except Exception as e:
-        print(f"Error polling BSD radar: {e}")
+        print(f"[BSD] Error polling BSD radar: {e}")
         return False
         
     filtered_points = filter_radar(raw_points, radar_cfg)

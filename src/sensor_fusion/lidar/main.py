@@ -9,27 +9,25 @@ def process_frame(lidar_sensor, beamng, speed, debug_window=None, vehicle=None, 
     try:
         lidar_data = lidar_sensor.poll()
         if lidar_data is None:
-            print("Warning: LiDAR sensor returned None")
+            print("[Lidar] Warning: LiDAR sensor returned None")
             return {}, []
 
         point_cloud = collect_lidar_data(beamng, lidar_data)
         if len(point_cloud) == 0:
-            print("Warning: Empty LiDAR point cloud")
+            print("[Lidar] Warning: Empty LiDAR point cloud")
             return {}, []
 
         filtered_points = point_cloud
-        print(f"Bypassing passthrough: {len(filtered_points)} points (from {len(point_cloud)})")
 
         if len(filtered_points) == 0:
-            print("Warning: No points after filtering")
+            print("[Lidar] Warning: No points after filtering")
             print(f"  Point cloud range: X=[{point_cloud[:, 0].min():.1f}, {point_cloud[:, 0].max():.1f}]")
             print(f"  Point cloud range: Y=[{point_cloud[:, 1].min():.1f}, {point_cloud[:, 1].max():.1f}]")
             print(f"  Point cloud range: Z=[{point_cloud[:, 2].min():.1f}, {point_cloud[:, 2].max():.1f}]")
             return {}, []
 
         # TEMPORARY: Bypass boundary detection and just return raw points for faster streaming
-        print(f"Returning {len(filtered_points)} raw LiDAR points")
         return {}, filtered_points
     except Exception as e:
-        print(f"LiDAR processing error: {e}")
+        print(f"[Lidar] LiDAR processing error: {e}")
         return {}, []

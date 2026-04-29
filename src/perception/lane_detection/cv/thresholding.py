@@ -116,7 +116,7 @@ def color_threshold(image, avg_brightness=None):
         avg_recent = np.mean(color_threshold.brightness_history)
         variance = np.var(color_threshold.brightness_history) if len(color_threshold.brightness_history) > 1 else 0
         
-        print(f"Avg brightness: {avg_brightness:.1f}, Recent avg: {avg_recent:.1f}, Variance: {variance:.1f}")
+        print(f"[Thresholding] Avg brightness: {avg_brightness:.1f}, Recent avg: {avg_recent:.1f}, Variance: {variance:.1f}")
         
         if avg_recent > BRIGHT_THRESHOLD:
             w_s_max = 30
@@ -184,8 +184,8 @@ def majority_vote(binaries, n_vote):
     binaries = [b.astype(np.uint8) for b in binaries]
     stacked = np.stack(binaries, axis=-1)
     sum_binary = np.sum(stacked, axis=-1)
-    print("Majority vote feature sums:", [np.sum(b) for b in binaries])
-    print(f"Voting threshold: {n_vote} out of {len(binaries)} features")
+    print(f"[Thresholding] Majority vote feature sums: {[np.sum(b) for b in binaries]}")
+    print(f"[Thresholding] Voting threshold: {n_vote} out of {len(binaries)} features")
     vote_binary = np.zeros_like(sum_binary)
     vote_binary[sum_binary >= n_vote] = 1
     return vote_binary.astype(np.uint8)
@@ -256,9 +256,9 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False):
     
     if include_b_channel:
         features.append(b_binary)
-        print(f"  Including LAB B: {b_pixel_count} pixels (>= {B_PIXEL_THRESHOLD} threshold)")
+        print(f"[Thresholding] Including LAB B: {b_pixel_count} pixels (>= {B_PIXEL_THRESHOLD} threshold)")
     else:
-        print(f"  Excluding LAB B: {b_pixel_count} pixels (< {B_PIXEL_THRESHOLD} threshold) - likely no yellow lanes on this map")
+        print(f"[Thresholding] Excluding LAB B: {b_pixel_count} pixels (< {B_PIXEL_THRESHOLD} threshold) - likely no yellow lanes on this map")
     
     if include_gradient:
         features.append(grad_binary)
@@ -267,16 +267,16 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False):
     
     if avg_brightness < MEDIUM_LOW_THRESHOLD:
         n_vote = max(2, n_features // 2)
-        print(f"Dark mode: voting {n_vote}/{n_features}")
+        print(f"[Thresholding] Dark mode: voting {n_vote}/{n_features}")
     elif avg_brightness < MEDIUM_BRIGHT_THRESHOLD:
         n_vote = max(3, n_features // 2 + 1)
-        print(f"Medium mode: voting {n_vote}/{n_features}")
+        print(f"[Thresholding] Medium mode: voting {n_vote}/{n_features}")
     else:
         n_vote = max(3, n_features // 2 + 1)
-        print(f"Bright mode: voting {n_vote}/{n_features}")
+        print(f"[Thresholding] Bright mode: voting {n_vote}/{n_features}")
     
     result = majority_vote(features, n_vote)
-    print(f"Majority vote pixels: {np.sum(result)}")
+    print(f"[Thresholding] Majority vote pixels: {np.sum(result)}")
     print(f"  HSV: {np.sum(hsv_binary)}, L (x2): {np.sum(l_binary)}, S: {np.sum(s_binary)}, B: {np.sum(b_binary)}" + (f", Grad: {np.sum(grad_binary)}" if include_gradient else ""))
     return result
 

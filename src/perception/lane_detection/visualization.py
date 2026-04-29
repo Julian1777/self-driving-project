@@ -88,12 +88,12 @@ def draw_multiple_lanes_overlay(original_image, warped_image, Minv, lanes, all_l
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                     
                 except Exception as lane_err:
-                    print(f"Error drawing lane {lane_class}: {lane_err}")
+                    print(f"[Visualization] Error drawing lane {lane_class}: {lane_err}")
         
         return result
         
     except Exception as e:
-        print(f"Error in draw_multiple_lanes_overlay: {e}")
+        print(f"[Visualization] Error in draw_multiple_lanes_overlay: {e}")
         import traceback
         traceback.print_exc()
         return original_image
@@ -186,5 +186,5 @@ def create_mask_overlay(img, mask, alpha=0.4, color=(0, 255, 0)):
         return result
         
     except Exception as e:
-        print(f"Error in create_mask_overlay: {e}")
+        print(f"[Visualization] Error in create_mask_overlay: {e}")
         return img

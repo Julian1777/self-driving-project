@@ -27,12 +27,11 @@ from scipy.spatial.transform import Rotation as R
 # bypassed docker aggregator setup
 from ultralytics import YOLO
 
-print("loading local models...")
+print("[Main] Loading local models...")
 # loaded models locally to bypass docker
 local_models = {}
 local_models['vehicle'] = YOLO('models/object_detection/object_detection.pt')
 local_models['traffic_light'] = YOLO('models/traffic_light/traffic_light_detection.pt')
-#changed key from traffic_sign to sign_detect to match src/perception/sign_detection/detect_classify.py
 local_models['sign_detect'] = YOLO('models/traffic_sign/traffic_sign_detection.pt')
 local_models['sign_classify'] = load_model('models/traffic_sign/traffic_sign_classification.h5')
 
@@ -67,9 +66,9 @@ try:
     local_models['yolop_model'] = yolop_model
     local_models['device'] = device
     local_models['yolop_transforms'] = yolop_transforms
-    print("loaded yolop successfully.")
+    print("[YOLOP] YOLOP model loaded successfully.")
 except Exception as e:
-    print(f"Warning: YOLOP utilities not found: {e}")
+    print(f"[YOLOP] YOLOP utilities not found: {e}")
 
 import sys
 sys.modules['__main__'].MODELS = local_models
@@ -219,6 +218,8 @@ def sim_setup(map_name='west_coast_usa', scenario_type='highway', vehicle_name='
                     resolution=tuple(sensor_cfg['resolution']),
                     is_streaming=sensor_cfg.get('is_streaming', False),
                     is_render_colours=sensor_cfg.get('is_render_colours', True),
+                    is_render_depth=sensor_cfg.get('is_render_depth', False),
+                    is_visualised=sensor_cfg.get('is_visualised', False),
                 )
                 cameras[sensor_key] = camera
                 print(f"Camera '{sensor_key}' initialized")
@@ -247,16 +248,16 @@ def sim_setup(map_name='west_coast_usa', scenario_type='highway', vehicle_name='
                     dir=tuple(sensor_cfg.get('dir', [0, -1, 0])),
                     is_visualised=sensor_cfg.get('is_visualised', False),
                 )
-                print(f"LiDAR '{sensor_key}' initialized")
+                print(f"[LiDAR] LiDAR '{sensor_key}' initialized")
                 break  # Use first enabled LiDAR as primary
             except Exception as e:
-                print(f"LiDAR '{sensor_key}' initialization error: {e}")
+                print(f"[LiDAR] LiDAR '{sensor_key}' initialization error: {e}")
 
     # Initialize Radars - support multiple radars (radar_front, radar_rear_left, radar_rear_right, etc.)
     for sensor_key, sensor_cfg in sensors.items():
         if sensor_key.startswith('radar_') and sensor_cfg.get('enabled', False):
             try:
-                print(f"Attempting {sensor_key} initialization...")
+                print(f"[Radar] Attempting {sensor_key} initialization...")
                 radar = Radar(
                     sensor_cfg['name'],
                     beamng,
@@ -276,18 +277,19 @@ def sim_setup(map_name='west_coast_usa', scenario_type='highway', vehicle_name='
                     azimuth_bins=sensor_cfg.get('azimuth_bins', 64),
                     vel_bins=sensor_cfg.get('vel_bins', 32),
                     half_angle_deg=sensor_cfg.get('half_angle_deg', 9),
+                    is_visualised=sensor_cfg.get('is_visualised', False),
                 )
                 radars[sensor_key] = radar
-                print(f"{sensor_key.replace('_', ' ').title()} initialized")
+                print(f"[Radar] {sensor_key.replace('_', ' ').title()} initialized")
             except Exception as e:
-                print(f"{sensor_key} initialization error: {e}")
+                print(f"[Radar] {sensor_key.replace('_', ' ').title()} initialization error: {e}")
                 radars[sensor_key] = None
 
     # Initialize GPS sensors - support multiple GPS (gps_front, gps_rear, etc.)
     for sensor_key, sensor_cfg in sensors.items():
         if sensor_key.startswith('gps_') and sensor_cfg.get('enabled', False):
             try:
-                print(f"Attempting {sensor_key} initialization...")
+                print(f"[GPS] Attempting {sensor_key} initialization...")
                 gps = GPS(
                     sensor_cfg['name'],
                     beamng,
@@ -304,16 +306,16 @@ def sim_setup(map_name='west_coast_usa', scenario_type='highway', vehicle_name='
                     is_dir_world_space=sensor_cfg.get('is_dir_world_space', False),
                 )
                 gps_sensors[sensor_key] = gps
-                print(f"{sensor_key.replace('_', ' ').title()} initialized")
+                print(f"[GPS] {sensor_key.replace('_', ' ').title()} initialized")
             except Exception as e:
-                print(f"{sensor_key} initialization error: {e}")
+                print(f"[GPS] {sensor_key} initialization error: {e}")
                 gps_sensors[sensor_key] = None
 
     # Initialize IMU sensors
     for sensor_key, sensor_cfg in sensors.items():
         if sensor_key.startswith('imu_') and sensor_cfg.get('enabled', False):
             try:
-                print(f"Attempting {sensor_key} initialization...")
+                print(f"[IMU] Attempting {sensor_key} initialization...")
                 imu = AdvancedIMU(
                     sensor_cfg['name'],
                     beamng,
@@ -333,9 +335,9 @@ def sim_setup(map_name='west_coast_usa', scenario_type='highway', vehicle_name='
                     is_dir_world_space=sensor_cfg.get('is_dir_world_space', False),
                 )
                 imus[sensor_key] = imu
-                print(f"{sensor_key.replace('_', ' ').title()} initialized")
+                print(f"[IMU] {sensor_key.replace('_', ' ').title()} initialized")
             except Exception as e:
-                print(f"{sensor_key} initialization error: {e}")
+                print(f"[IMU] {sensor_key} initialization error: {e}")
                 imus[sensor_key] = None
 
     # Return primary camera (camera_front) and primary GPS for backwards compatibility
@@ -472,56 +474,56 @@ def main():
         scenario_type='highway', 
         vehicle_name='etk800'
     )
-    print("Simulation setup complete")
+    print("[Main] Simulation setup complete")
 
-    print("Wait for sensors to initialize")
+    print("[Main] Waiting for sensors to initialize")
     time.sleep(3)
     
     try:
-        print("Testing camera...")
+        print("[Camera] Testing camera...")
         camera_test = camera.poll()
-        print(f"Camera working: {type(camera_test)}")
+        print(f"[Camera] Camera working: {type(camera_test)}")
     except Exception as e:
-        print(f"Camera error: {e}")
+        print(f"[Camera] Camera error: {e}")
         
     try:
-        print("Testing lidar...")
+        print("[LiDAR] Testing lidar...")
         lidar_test = lidar.poll()
-        print(f"LiDAR working: {type(lidar_test)}")
+        print(f"[LiDAR] LiDAR working: {type(lidar_test)}")
     except Exception as e:
-        print(f"LiDAR error: {e}")
+        print(f"[LiDAR] LiDAR error: {e}")
 
     # Test all radars
     try:
         for radar_name, radar in radars.items():
             try:
                 radar_test = radar_name.poll()
-                print(f"{radar_name} working: {type(radar_test)}")
+                print(f"[Radar] {radar_name} working: {type(radar_test)}")
             except Exception as e:
-                print(f"{radar_name} error: {e}")
+                print(f"[Radar] {radar_name} error: {e}")
     except Exception as e:
-        print(f"{radar_name} error: {e}")
+        print(f"[Radar] {radar_name} error: {e}")
 
     try:
-        print("Testing GPS...")
+        print("[GPS] Testing GPS...")
         gps_test = gps.poll()
-        print(f"GPS working: {type(gps_test)}")
+        print(f"[GPS] GPS working: {type(gps_test)}")
     except Exception as e:
-        print(f"GPS error: {e}")
+        print(f"[GPS] GPS error: {e}")
 
     try:
-        print("Testing IMU...")
+        print("[IMU] Testing IMU...")
         imu_test = imu.poll()
-        print(f"IMU working: {type(imu_test)}")
+        print(f"[IMU] IMU working: {type(imu_test)}")
     except Exception as e:
-        print(f"IMU error: {e}")
+        print(f"[IMU] IMU error: {e}")
 
-    print("Setting up traffic")
+    print("[Main] Setting up traffic")
     try:
         beamng.traffic.spawn(max_amount=3, police_ratio=0.0, extra_amount=0, parked_amount=0)
         print("Traffic spawned: 3 vehicles")
     except Exception as e:
-        print(f"Traffic setup error: {e}")
+        print(f"[Main] Traffic setup error: {e}")
 
     # Load control parameters from config
     beamng_cfg, _, _, control, perception_config = load_config()
@@ -536,7 +538,8 @@ def main():
     enable_sign_det = perception_flags.get('enable_sign_detection', True)
     enable_yolop_flag = perception_flags.get('enable_yolop', True)
     debug_cv_lane = perception_flags.get('debug_cv_lane_detection', False)
-    print(f"perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} yolop:{enable_yolop_flag} debug:{debug_cv_lane}")
+    debug_perspective = perception_flags.get('debug_perspective', False)
+    print(f"[Main] perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} yolop:{enable_yolop_flag} debug:{debug_cv_lane}")
 
     steering_pid = PIDController(**control_cfg['steering_pid'])
     max_steering_change = control_cfg['max_steering_change']
@@ -552,7 +555,7 @@ def main():
 
     # Speed control mode: 'cruise' (normal), 'adaptive' (ACC), or 'none' (manual)
     speed_control_mode = control_cfg['speed_control_mode']
-    print(f"Speed control mode: {speed_control_mode}")
+    print(f"[Main] Speed control mode: {speed_control_mode}")
 
     frame_count = 0
 
@@ -567,11 +570,11 @@ def main():
             try:
                 beamng.control.step(10)
             except Exception as e:
-                print(f"Simulation step error: {e}")
+                print(f"[Main] Simulation step error: {e}")
 
             images = camera.poll()
             if images is None or 'colour' not in images:
-                print(f"Invalid camera poll response")
+                print(f"[Camera] Invalid camera poll response")
                 continue
             
             img = np.array(images['colour'], dtype=np.uint8)
@@ -581,7 +584,7 @@ def main():
                 timestamp_ns = get_timestamp_ns()
                 bridge.send_camera_image(img, timestamp_ns, frame_id="camera")
             except Exception as camera_send_e:
-                print(f"Error sending camera image to Foxglove: {camera_send_e}")
+                print(f"[Foxglove] Error sending camera image to Foxglove: {camera_send_e}")
 
             # Speed
             try:
@@ -589,7 +592,7 @@ def main():
                 speed_mps = abs(speed_mps)
                 speed_kph = abs(speed_kph)
             except Exception as e:
-                print(f"Speed retrieval error: {e}")
+                print(f"[Simulation] Speed retrieval error: {e}")
                 continue
 
             # Lane Detection
@@ -620,6 +623,7 @@ def main():
                         speed=speed_kph,
                         previous_steering=previous_steering,
                         debug_display=debug_cv_lane,
+                        perspective_debug_display=debug_perspective,
                         vehicle_model='etk800',
                         num_lanes=3
                     )
@@ -653,9 +657,7 @@ def main():
                     fused_confidence = 0.0
                 
             except Exception as agg_e:
-                print(f"[CRITICAL] Local perception error: {agg_e}")
-                import traceback
-                traceback.print_exc()
+                print(f"[Main] Local perception error: {agg_e}")
                 continue
 
             # Display CV lane detection window
@@ -679,7 +681,7 @@ def main():
                         vehicle_model='etk800'
                     )
                 except Exception as e:
-                    print(f"Error processing local yolop: {e}")
+                    print(f"[YOLOP] Error processing local yolop: {e}")
                     drivable_area = None
                     yolop_lanes = None
             else:
@@ -699,7 +701,7 @@ def main():
                         img_bgr_for_display = create_mask_overlay(img_bgr_for_display, drivable_area_roi, alpha=0.1, color=(0, 255, 0))
                         yolop_displayed = True
                 except Exception as e:
-                    print(f"Error displaying drivable area: {e}")
+                    print(f"[Visualization] Error displaying drivable area: {e}")
             
             if yolop_lanes is not None and len(yolop_lanes) > 0:
                 try:
@@ -716,7 +718,7 @@ def main():
                     )
                     yolop_displayed = True
                 except Exception as e:
-                    print(f"Error drawing YOLOP lanes: {e}")
+                    print(f"[YOLOP] Error drawing YOLOP lanes: {e}")
                     
             if yolop_displayed:
                 yolop_disp = cv2.resize(img_bgr_for_display, (0, 0), fx=0.5, fy=0.5)
@@ -729,7 +731,7 @@ def main():
                 combined_disp = cv2.resize(combined_img, (0, 0), fx=0.5, fy=0.5)
                 cv2.imshow('Object Detections', combined_disp)
             except Exception as draw_e:
-                print(f"Error drawing detections: {draw_e}")
+                print(f"[Object Detection] Error drawing detections: {draw_e}")
                 
             steering = steering_pid.update(-effective_deviation, dt)
             steering = np.clip(steering, -1.0, 1.0)
@@ -755,7 +757,7 @@ def main():
             try:
                 lidar_lane_boundaries, filtered_points = lidar_process_frame(lidar, beamng=beamng, speed=speed_kph, debug_window=None, vehicle=vehicle, car_position=car_pos, car_direction=direction)
             except Exception as lidar_e:
-                print(f"Lidar process error: {lidar_e}")
+                print(f"[LiDAR] Lidar process error: {lidar_e}")
                 lidar_lane_boundaries = None
                 filtered_points = None
 
@@ -770,11 +772,11 @@ def main():
                 if radar_left or radar_right:
                     bsd_status = radar_bsd(radar_left, radar_right, perception_cfg)
                     if bsd_status['left_warning']:
-                        print("Vehicle in left blind spot")
+                        print(f"[BSD] Vehicle in left blind spot")
                     if bsd_status['right_warning']:
-                        print("Vehicle in right blind spot")
+                        print(f"[BSD] Vehicle in right blind spot")
             except Exception as bsd_e:
-                print(f"BSD processing error: {bsd_e}")
+                print(f"[BSD] Processing error: {bsd_e}")
 
             throttle = 0.0
             brake = 0.0
@@ -790,17 +792,17 @@ def main():
 
                     if ttc <= 1.0:
                         # full breaking
-                        print(f"EMERGENCY BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
+                        print(f"[AEB] EMERGENCY BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
                         throttle = 0.0
                         brake = 1.0
                     elif ttc <= 3.0:
                         # medium breaking
-                        print(f"MEDIUM BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
+                        print(f"[AEB] MEDIUM BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
                         throttle = 0.0
                         brake = 0.3
                     elif ttc < float('inf'):
                         # Reduce throttle
-                        print(f"WARNING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
+                        print(f"[AEB] WARNING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
                         throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt) * 0.5
                         brake = 0.0
                     else:
@@ -809,7 +811,7 @@ def main():
                         brake = 0.0
                     
                 except Exception as radar_e:
-                    print(f"Radar processing error: {radar_e}")
+                    print(f"[AEB] Radar processing error: {radar_e}")
                     throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
                     brake = 0.0
 
@@ -843,7 +845,7 @@ def main():
                     brake=0.0
                 )
             except Exception as control_send_e:
-                print(f"Error sending vehicle control to Foxglove: {control_send_e}")
+                print(f"[Foxglove] Error sending vehicle control to Foxglove: {control_send_e}")
 
             try:
                 # Send vehicle pose (PosesInFrame)
@@ -862,7 +864,7 @@ def main():
                     frame_id="map"
                 )
             except Exception as pose_send_e:
-                print(f"Error sending vehicle pose to Foxglove: {pose_send_e}")
+                print(f"[Foxglove] Error sending vehicle pose to Foxglove: {pose_send_e}")
 
             try:
                 # Publish complete TF tree (map - base_link - lidar_top)
@@ -880,7 +882,7 @@ def main():
                     quat_w=quat_w
                 )
             except Exception as tf_send_e:
-                print(f"Error publishing TF tree to Foxglove: {tf_send_e}")
+                print(f"[Foxglove] Error publishing TF tree to Foxglove: {tf_send_e}")
 
             try:
                 # Send LiDAR point cloud
@@ -893,7 +895,7 @@ def main():
                         frame_id="map"
                     )
             except Exception as lidar_send_e:
-                print(f"Error sending LiDAR to Foxglove: {lidar_send_e}")
+                print(f"[Foxglove] Error sending LiDAR to Foxglove: {lidar_send_e}")
 
             try:
                 timestamp_ns = get_timestamp_ns()
@@ -934,12 +936,12 @@ def main():
                         frame_id="map"
                     )
             except Exception as det_send_e:
-                print(f"Error sending detections: {det_send_e}")
+                print(f"[Foxglove] Error sending detections: {det_send_e}")
 
     except KeyboardInterrupt:
         print("Interrupted by user")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"[Main] Error: {e}")
     finally:
         cv2.destroyAllWindows()
         # if 'perception_client' in locals():

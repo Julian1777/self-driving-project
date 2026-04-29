@@ -2,14 +2,50 @@ import numpy as np
 from scipy.signal import find_peaks
 import cv2 as cv
 
-def find_lane_boundaries(histogram, num_peaks=4, min_distance=80, height_threshold=None):
+def filter_close_peaks(peaks, histogram, min_distance=40):
     """
-    Find lane boundaries using peajs in the histogram.
+    Filter peaks that are too close together, keeping only the strongest one.
+    
+    This prevents double-lane detections from double-lines or noise.
+    Uses physical constraint: lanes cannot be closer than ~2 meters.
+    At 20 pixels/meter (from perspective warp), this means 40 pixels minimum.
+    
+    args:
+        peaks: Array of peak indices
+        histogram: 1D array of histogram values
+        min_distance: Minimum distance between kept peaks in pixels (default 40 for 2m)
+    
+    returns:
+        Filtered list of peak indices with minimum spacing maintained
+    """
+    if len(peaks) == 0:
+        return peaks
+    
+    sorted_peaks = sorted(peaks, key=lambda x: histogram[x], reverse=True)
+    
+    filtered_peaks = []
+    for peak in sorted_peaks:
+        is_too_close = False
+        for selected_peak in filtered_peaks:
+            if abs(peak - selected_peak) < min_distance:
+                is_too_close = True
+                break
+        
+        if not is_too_close:
+            filtered_peaks.append(peak)
+    
+    return sorted(filtered_peaks)
+
+
+def find_lane_boundaries(histogram, num_peaks=4, min_distance=80, min_physical_distance=40, height_threshold=None):
+    """
+    Find lane boundaries using peaks in the histogram with physical distance constraints.
 
     args:
         histogram: 1D array representing the histogram of pixel intensities.
         num_peaks: Maximum number of peaks to identify (default is 4).
-        min_distance: Minimum distance between peaks in pixels (default is 80).
+        min_distance: Minimum distance between peaks for find_peaks in pixels (default is 80).
+        min_physical_distance: Minimum physical distance (2 meters = 40 pixels at 20px/m scale).
         height_threshold: Minimum height of peaks to be considered valid (default is None, which means no threshold).
 
     returns:
@@ -23,7 +59,13 @@ def find_lane_boundaries(histogram, num_peaks=4, min_distance=80, height_thresho
     
     peaks, properties = find_peaks(histogram, distance=min_distance, height=height_threshold)
     
-    top_peaks = sorted(peaks, key=lambda x: histogram[x], reverse=True)[:num_peaks]
+    filtered_peaks = filter_close_peaks(peaks, histogram, min_distance=min_physical_distance)
+    
+    if len(filtered_peaks) >= num_peaks:
+        top_peaks = sorted(filtered_peaks, key=lambda x: histogram[x], reverse=True)[:num_peaks]
+    else:
+        top_peaks = filtered_peaks
+    
     lane_boundaries = sorted(top_peaks)
 
     return lane_boundaries
@@ -112,8 +154,15 @@ def detect_multiple_lanes(binary_warped, num_lanes=3):
     num_peaks = num_lanes + 1
     lane_boundaries = find_lane_boundaries(histogram, num_peaks=num_peaks)
     
+    if lane_boundaries is not None and len(lane_boundaries) >= num_peaks:
+        print(f"[Multi-Lane] Detected {len(lane_boundaries)} boundaries at: {lane_boundaries}")
+    
     if lane_boundaries is None or len(lane_boundaries) < num_peaks:
+        print(f"[Multi-Lane] First attempt found {len(lane_boundaries) if lane_boundaries is not None else 0} peaks, retrying with lower threshold...")
         lane_boundaries = find_lane_boundaries(histogram, num_peaks=num_peaks, height_threshold=0.1 * np.max(histogram))
+    
+    if lane_boundaries is not None and len(lane_boundaries) >= num_peaks:
+        print(f"[Multi-Lane] Detected {len(lane_boundaries)} boundaries at: {lane_boundaries} (with lower threshold)")
     
     if lane_boundaries is None or len(lane_boundaries) < num_peaks:
         return None

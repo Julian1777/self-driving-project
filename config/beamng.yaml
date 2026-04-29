@@ -11,6 +11,7 @@ perception:
   enable_traffic_light_detection: true
   enable_sign_detection: true
   enable_yolop: true
+  debug_perspective: true
 
 vehicles:
   etk800:

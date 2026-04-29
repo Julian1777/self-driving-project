@@ -38,25 +38,48 @@ def process_frame(img, confidence_threshold=default_threshold, model=None, devic
         lanes = None
         if lane_mask is not None and lane_mask.size > 0:
             try:
+                print(f"[YOLOP] Lane mask shape: {lane_mask.shape}, dtype: {lane_mask.dtype}, unique values: {np.unique(lane_mask)}")
+                
+                lane_mask_binary = (lane_mask > 0).astype(np.uint8) * 255
+                
                 src_points = get_src_points(img.shape, speed, 0, vehicle_model=vehicle_model, calibration_data=calibration_data)
                 
-                roi_mask = np.zeros(lane_mask.shape[:2], dtype=np.uint8)
+                roi_mask = np.zeros(lane_mask_binary.shape[:2], dtype=np.uint8)
                 src_poly = np.array(src_points, dtype=np.int32)
-                cv2.fillPoly(roi_mask, [src_poly], 1)
-                lane_mask_roi = lane_mask * roi_mask
+                cv2.fillPoly(roi_mask, [src_poly], 255)
+                lane_mask_roi = cv2.bitwise_and(lane_mask_binary, roi_mask)
                 
-                lane_warped, _ = perspective_warp(lane_mask_roi, speed=speed, calibration_data=calibration_data, vehicle_model=vehicle_model)
+                print(f"[YOLOP] Lane mask after ROI: min={np.min(lane_mask_roi)}, max={np.max(lane_mask_roi)}, mean={np.mean(lane_mask_roi):.1f}")
+                
+                lane_warped, _ = perspective_warp(
+                    lane_mask_roi, 
+                    speed=speed, 
+                    calibration_data=calibration_data, 
+                    vehicle_model=vehicle_model,
+                    is_mask=True
+                )
+                
+                print(f"[YOLOP] Warped lane mask: shape={lane_warped.shape}, min={np.min(lane_warped)}, max={np.max(lane_warped)}")
+                
+                if lane_warped.dtype != np.uint8:
+                    lane_warped = lane_warped.astype(np.uint8)
+                
+                _, lane_warped_binary = cv2.threshold(lane_warped, 127, 255, cv2.THRESH_BINARY)
+                
+                print(f"[YOLOP] Binary warped mask: min={np.min(lane_warped_binary)}, max={np.max(lane_warped_binary)}, non-zero pixels: {np.count_nonzero(lane_warped_binary)}")
                 
                 detected_num_lanes = 3
                 for attempt_lanes in [3, 2, 1]:
-                    lanes = detect_multiple_lanes(lane_warped, num_lanes=attempt_lanes)
+                    lanes = detect_multiple_lanes(lane_warped_binary, num_lanes=attempt_lanes)
                     if lanes is not None:
                         detected_num_lanes = attempt_lanes
-                        print(f"[YOLOP] Successfully detected {detected_num_lanes} lanes")
+                        print(f"[YOLOP] Successfully detected {detected_num_lanes} lanes from mask")
                         break
+                    else:
+                        print(f"[YOLOP] Failed to detect {attempt_lanes} lanes, retrying with {attempt_lanes-1}...")
                 
                 if lanes is None:
-                    print("[YOLOP] Lane detection from mask failed")
+                    print("[YOLOP] Lane detection from mask failed - no valid lane boundaries found")
             except Exception as e:
                 print(f"[YOLOP] Error processing lane mask: {e}")
                 lanes = None
