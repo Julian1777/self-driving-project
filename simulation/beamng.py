@@ -617,6 +617,27 @@ def main():
                 else:
                     sign_detections = []
                 
+                # added yolop process frame locally, checks flag
+                if enable_yolop_flag:
+                    try:
+                        yolop_detections, drivable_area, yolop_lane_mask = yolop_process(
+                            img_bgr, 
+                            confidence_threshold=0.3, 
+                            model=local_models.get('yolop_model'), 
+                            device=local_models.get('device'), 
+                            transforms=local_models.get('yolop_transforms'),
+                            speed=speed_kph,
+                            calibration_data=None,
+                            vehicle_model='etk800'
+                        )
+                    except Exception as e:
+                        print(f"[YOLOP] Error processing local yolop: {e}")
+                        drivable_area = None
+                        yolop_lane_mask = None
+                else:
+                    drivable_area = None
+                    yolop_lane_mask = None
+                
                 if enable_cv_lane:
                     cv_result_image, metrics, cv_confidence = cv_lane_process(
                         img, 
@@ -625,7 +646,8 @@ def main():
                         debug_display=debug_cv_lane,
                         perspective_debug_display=debug_perspective,
                         vehicle_model='etk800',
-                        num_lanes=3
+                        num_lanes=3,
+                        yolop_lane_mask=yolop_lane_mask
                     )
                 else:
                     cv_result_image = None
@@ -731,28 +753,6 @@ def main():
                 cv_disp = cv2.resize(cv_disp, (0, 0), fx=0.5, fy=0.5)
                 cv2.imshow('CV Lane Detection', cv_disp)
 
-            # added yolop process frame locally, checks flag
-            if enable_yolop_flag:
-                try:
-                    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                    yolop_detections, drivable_area, yolop_lanes = yolop_process(
-                        img_bgr, 
-                        confidence_threshold=0.3, 
-                        model=local_models.get('yolop_model'), 
-                        device=local_models.get('device'), 
-                        transforms=local_models.get('yolop_transforms'),
-                        speed=speed_kph,
-                        calibration_data=None,
-                        vehicle_model='etk800'
-                    )
-                except Exception as e:
-                    print(f"[YOLOP] Error processing local yolop: {e}")
-                    drivable_area = None
-                    yolop_lanes = None
-            else:
-                drivable_area = None
-                yolop_lanes = None
-
             # display drivable area and lanes with proper overlay visualization
             img_bgr_for_display = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             yolop_displayed = False
@@ -768,22 +768,12 @@ def main():
                 except Exception as e:
                     print(f"[Visualization] Error displaying drivable area: {e}")
             
-            if yolop_lanes is not None and len(yolop_lanes) > 0:
+            if yolop_lane_mask is not None and np.sum(yolop_lane_mask) > 0:
                 try:
-                    src_points = get_src_points(img.shape, speed_kph, previous_steering, vehicle_model='etk800', calibration_data=None)
-                    dummy_warped = np.zeros((img.shape[0]//2, img.shape[1]//2), dtype=np.uint8)
-                    _, Minv = perspective_warp(dummy_warped, speed=speed_kph, calibration_data=None, vehicle_model='etk800')
-                    
-                    img_bgr_for_display = draw_multiple_lanes_overlay(
-                        img_bgr_for_display, 
-                        dummy_warped, 
-                        Minv, 
-                        yolop_lanes,
-                        all_lanes_classified=None
-                    )
+                    img_bgr_for_display = create_mask_overlay(img_bgr_for_display, yolop_lane_mask, alpha=0.3, color=(255, 0, 0))
                     yolop_displayed = True
                 except Exception as e:
-                    print(f"[YOLOP] Error drawing YOLOP lanes: {e}")
+                    print(f"[YOLOP] Error drawing YOLOP lane mask: {e}")
                     
             if yolop_displayed:
                 yolop_disp = cv2.resize(img_bgr_for_display, (0, 0), fx=0.5, fy=0.5)

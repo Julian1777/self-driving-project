@@ -17,7 +17,7 @@ import numpy as np
 import cv2
 
 
-def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, perspective_debug_display=False, calibration_data=None, vehicle_model='q8_andronisk', num_lanes=3):
+def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, perspective_debug_display=False, calibration_data=None, vehicle_model='q8_andronisk', num_lanes=3, yolop_lane_mask=None):
         
     previous_fit = None
     confidence = 0.0
@@ -30,7 +30,8 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
             img, 
             src_points=None,
             debug_display=debug_display,
-            use_gradient=False
+            use_gradient=False,
+            yolop_lane_mask=yolop_lane_mask
         )
         if debug_display:
             binary_display_resized = cv2.resize(binary_image, (0, 0), fx=0.5, fy=0.5)

@@ -10,7 +10,7 @@
 
 ## Overview
 
-A modular Python project for autonomous driving research and prototyping, fully integrated with the BeamNG.tech simulator and Foxglove visualization. This system combines traditional computer vision and state-of-the-art deep learning (CNN, YOLO & YOLOP) with real-time sensor fusion and autonomous vehicle control to tackle:
+A modular Python project for autonomous driving research and prototyping, fully integrated with the BeamNG.tech simulator and Foxglove visualization. This system combines traditional computer vision algorithms and deep learning (CNN, YOLO) with real-time sensor fusion and autonomous vehicle control to tackle:
 
 - **Multi-Lane Detection**: YOLOP, Traditional CV
 - **Traffic Sign**: Classification & Detection
@@ -20,7 +20,6 @@ A modular Python project for autonomous driving research and prototyping, fully 
 - **Real-Time Control**: PID steering, cruise control (CC), automatic emergency braking (AEB)
 - **Visualization**: Real-time monitoring with Foxglove WebSocket + multiple CV windows
 - **Configuration System**: YAML-based modular settings
-- **Drive Logging**: Full telemetry and drive logs
   
 ## Table of Contents
 
@@ -28,23 +27,26 @@ A modular Python project for autonomous driving research and prototyping, fully 
   - [Overview](#overview)
   - [Table of Contents](#table-of-contents)
   - [Demos](#demos)
+    - [Multi-Lane Detection Stress Testing](#multi-lane-detection-stress-testing)
+    - [Emergency Braking (AEB) Demo](#emergency-braking-aeb-demo)
+    - [Blind Spot Detection (BSD) Demo](#blind-spot-detection-bsd-demo)
+    - [Sign Detection \& Detection and classification](#sign-detection--detection-and-classification)
+    - [Traffic Light Detection \& Classification Demo](#traffic-light-detection--classification-demo)
+    - [Latest Lane Detection Demo (v2)](#latest-lane-detection-demo-v2)
+    - [YOLOP Lane Detection Demo](#yolop-lane-detection-demo)
+    - [Foxglove Visualization Demo](#foxglove-visualization-demo)
+    - [Segmentation Demo](#segmentation-demo)
   - [Sensor Suite](#sensor-suite)
   - [Microservices Architecture](#microservices-architecture)
   - [Roadmap](#roadmap)
   - [Note on Installation](#note-on-installation)
   - [Known Limitations](#known-limitations)
-    - [Simulator-Specific Limitations](#simulator-specific-limitations)
   - [Credits](#credits)
-  - [Citation](#citation)
-    - [BeamNG.tech Citation](#beamngtech-citation)
   - [License](#license)
 
 
 
 ## Demos
-
-<details>
-<summary>Open demo GIF gallery</summary>
 
 ### Multi-Lane Detection Stress Testing
 Evaluation of the multi-lane perception pipeline across various environmental edge cases, including high-glare transitions, low-light tunnels, and heavy atmospheric fog:
@@ -141,9 +143,9 @@ See real-time image segmentation using front and rear cameras:
 
 **Extended Demo:** [Watch the full video here](https://youtu.be/4PAqcUKqn6c?si=UHw-mw7iLZKGXvav)
 
-> More demo videos and visualizations will be added as features are completed.
+---
 
-</details>
+> More demo videos and visualizations will be added as features are completed.
 
 ## Sensor Suite
 
@@ -277,7 +279,6 @@ Extract individual results + visualize
   - [ ] Check Blindspots before lane change
   - [ ] Signal Lane Change
 - [ ] Parking Logic (Path finding / Parallel or Perpendicular)
-- [ ] 💤💤 U-Turn Logic (3-point turn)
 - [ ] 💤💤 Advanced traffic participant prediction (trajectory, intent)
 
 ### Simulation & Scenarios

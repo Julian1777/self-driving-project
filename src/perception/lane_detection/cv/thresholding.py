@@ -191,7 +191,7 @@ def majority_vote(binaries, n_vote):
     return vote_binary.astype(np.uint8)
 
 
-def adaptive_majority_vote(image, avg_brightness, include_gradient=False):
+def adaptive_majority_vote(image, avg_brightness, include_gradient=False, yolop_lane_mask=None):
     """
     Adaptive voting combining HSV, LAB L/B, HLS S, and optional gradient.
     Voting threshold adjusts for lighting: dark/medium (3/n), bright (4/n).
@@ -200,6 +200,7 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False):
         image (numpy array): RGB image
         avg_brightness (float): Average brightness of the image
         include_gradient (bool): Whether to include gradient features
+        yolop_lane_mask (numpy array): Optional lane mask from YOLOP
     
     Returns:
         numpy array: Binary image from majority voting
@@ -262,6 +263,10 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False):
     
     if include_gradient:
         features.append(grad_binary)
+        
+    if yolop_lane_mask is not None:
+        features.append(yolop_lane_mask)
+        print(f"[Thresholding] Including YOLOP lane mask: {np.sum(yolop_lane_mask)} pixels")
     
     n_features = len(features)
     
@@ -277,11 +282,11 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False):
     
     result = majority_vote(features, n_vote)
     print(f"[Thresholding] Majority vote pixels: {np.sum(result)}")
-    print(f"  HSV: {np.sum(hsv_binary)}, L (x2): {np.sum(l_binary)}, S: {np.sum(s_binary)}, B: {np.sum(b_binary)}" + (f", Grad: {np.sum(grad_binary)}" if include_gradient else ""))
+    print(f"  HSV: {np.sum(hsv_binary)}, L (x2): {np.sum(l_binary)}, S: {np.sum(s_binary)}, B: {np.sum(b_binary)}" + (f", Grad: {np.sum(grad_binary)}" if include_gradient else "") + (f", YOLOP: {np.sum(yolop_lane_mask)}" if yolop_lane_mask is not None else ""))
     return result
 
 
-def apply_thresholds_with_voting(image, src_points=None, debug_display=False, use_gradient=False):
+def apply_thresholds_with_voting(image, src_points=None, debug_display=False, use_gradient=False, yolop_lane_mask=None):
     """
     Apply adaptive majority voting thresholds with optional ROI masking.
     
@@ -290,6 +295,7 @@ def apply_thresholds_with_voting(image, src_points=None, debug_display=False, us
         src_points (numpy array): Source points for ROI masking (optional)
         debug_display (bool): Whether to show debug windows
         use_gradient (bool): Whether to include gradient features in voting
+        yolop_lane_mask (numpy array): Optional lane mask from YOLOP
     
     Returns:
         tuple: (combined_binary, avg_brightness)
@@ -305,7 +311,7 @@ def apply_thresholds_with_voting(image, src_points=None, debug_display=False, us
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         avg_brightness = np.mean(gray)
     
-    combined_binary = adaptive_majority_vote(image, avg_brightness, include_gradient=use_gradient)
+    combined_binary = adaptive_majority_vote(image, avg_brightness, include_gradient=use_gradient, yolop_lane_mask=yolop_lane_mask)
     
     if mask is not None:
         combined_binary = combined_binary * mask
