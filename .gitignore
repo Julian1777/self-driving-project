@@ -1,6 +1,7 @@
 models/
 videos/
 *.mp4
+*.mov
 
 .DS_Store
 Thumbs.db

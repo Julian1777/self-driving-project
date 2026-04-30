@@ -660,6 +660,71 @@ def main():
                 print(f"[Main] Local perception error: {agg_e}")
                 continue
 
+            steering = steering_pid.update(-effective_deviation, dt)
+            steering = np.clip(steering, -1.0, 1.0)
+            steering_change = steering - previous_steering
+            if abs(steering_change) > max_steering_change:
+                steering = previous_steering + np.sign(steering_change) * max_steering_change
+
+            throttle = 0.0
+            brake = 0.0
+
+            if speed_control_mode == 'adaptive':
+                try:
+                    radar_front = radars.get('radar_front', None)
+                    radar_result = radar_aeb_acc(radar_front, perception_cfg, speed_kph)
+
+                    ttc = radar_result.get('ttc', float('inf'))
+                    closest_distance = radar_result.get('closest_distance', float('inf'))
+                    closest_velocity = radar_result.get('closest_velocity', float('inf'))
+
+                    if ttc <= 1.0:
+                        # full breaking
+                        print(f"[AEB] EMERGENCY BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
+                        throttle = 0.0
+                        brake = 1.0
+                    elif ttc <= 3.0:
+                        # medium breaking
+                        print(f"[AEB] MEDIUM BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
+                        throttle = 0.0
+                        brake = 0.3
+                    elif ttc < float('inf'):
+                        # Reduce throttle
+                        print(f"[AEB] WARNING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
+                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt) * 0.5
+                        brake = 0.0
+                    else:
+                        # No object detected normal cruise control
+                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
+                        brake = 0.0
+                    
+                except Exception as radar_e:
+                    print(f"[AEB] Radar processing error: {radar_e}")
+                    throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
+                    brake = 0.0
+
+            elif speed_control_mode == 'cruise':
+                # Normal cruise control (no adaptive features)
+                throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
+                brake = 0.0
+
+            elif speed_control_mode == 'none':
+                # No automatic speed control manual throttle
+                throttle = 0.0
+                brake = 0.0
+            
+            # Limit throttle based on steering angle to prevent spinning out
+            throttle = throttle * (1.0 - 0.3 * abs(steering))
+            throttle = np.clip(throttle, 0.05, 0.3)
+            
+            # Application of the vehicle controls to BeamNG
+            # try:
+            #     vehicle.control(throttle=float(throttle), brake=float(brake), steering=float(steering))
+            # except Exception as e:
+            #     print(f"[Main] Error sending control to vehicle: {e}")
+                
+            previous_steering = steering
+
             # Display CV lane detection window
             if cv_result_image is not None:
                 cv_disp = cv2.cvtColor(cv_result_image, cv2.COLOR_RGB2BGR) if len(cv_result_image.shape) == 3 else cv_result_image
@@ -733,16 +798,6 @@ def main():
             except Exception as draw_e:
                 print(f"[Object Detection] Error drawing detections: {draw_e}")
                 
-            steering = steering_pid.update(-effective_deviation, dt)
-            steering = np.clip(steering, -1.0, 1.0)
-            steering_change = steering - previous_steering
-            if abs(steering_change) > max_steering_change:
-                steering = previous_steering + np.sign(steering_change) * max_steering_change
-
-            throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
-            throttle = throttle * (1.0 - 0.3 * abs(steering))
-            throttle = np.clip(throttle, 0.05, 0.3)
-
             fused_confidence = lane_metrics.get('confidence', 0.0)
             
             # Calculate vehicle yaw from direction
@@ -777,57 +832,6 @@ def main():
                         print(f"[BSD] Vehicle in right blind spot")
             except Exception as bsd_e:
                 print(f"[BSD] Processing error: {bsd_e}")
-
-            throttle = 0.0
-            brake = 0.0
-
-            if speed_control_mode == 'adaptive':
-                try:
-                    radar_front = radars.get('radar_front', None)
-                    radar_result = radar_aeb_acc(radar_front, perception_cfg, speed_kph)
-
-                    ttc = radar_result.get('ttc', float('inf'))
-                    closest_distance = radar_result.get('closest_distance', float('inf'))
-                    closest_velocity = radar_result.get('closest_velocity', float('inf'))
-
-                    if ttc <= 1.0:
-                        # full breaking
-                        print(f"[AEB] EMERGENCY BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
-                        throttle = 0.0
-                        brake = 1.0
-                    elif ttc <= 3.0:
-                        # medium breaking
-                        print(f"[AEB] MEDIUM BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
-                        throttle = 0.0
-                        brake = 0.3
-                    elif ttc < float('inf'):
-                        # Reduce throttle
-                        print(f"[AEB] WARNING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
-                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt) * 0.5
-                        brake = 0.0
-                    else:
-                        # No object detected normal cruise control
-                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
-                        brake = 0.0
-                    
-                except Exception as radar_e:
-                    print(f"[AEB] Radar processing error: {radar_e}")
-                    throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
-                    brake = 0.0
-
-            elif speed_control_mode == 'cruise':
-                # Normal cruise control (no adaptive features)
-                throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
-                brake = 0.0
-
-            elif speed_control_mode == 'none':
-                # No automatic speed control manual throttle
-                throttle = 0.0
-                brake = 0.0
-            
-            # Limit throttle based on steering angle to prevent spinning out
-            throttle = throttle * (1.0 - 0.3 * abs(steering))
-            throttle = np.clip(throttle, 0.05, 0.3)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break

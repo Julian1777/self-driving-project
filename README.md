@@ -16,8 +16,7 @@ A modular Python project for autonomous driving research and prototyping, fully 
 - **Traffic Sign**: Classification & Detection
 - **Traffic Lights**: Classification & Detection
 - **Object Detection**: Vehicles, pedestrians, cyclists and more
-- **Multi-Sensor Fusion**: Camera, Lidar, Radar, GPS, IMU
-<!-- - **Microservices Architecture**: Containerized multi-model inference (Docker), orchestrated via central aggregator -->
+- **Multi-Sensor Fusion**: Camera, Lidar, Radar, GPS, IMU <!-- - **Microservices Architecture**: Containerized multi-model inference (Docker), orchestrated via central aggregator -->
 - **Real-Time Control**: PID steering, cruise control (CC), automatic emergency braking (AEB)
 - **Visualization**: Real-time monitoring with Foxglove WebSocket + multiple CV windows
 - **Configuration System**: YAML-based modular settings
@@ -29,26 +28,9 @@ A modular Python project for autonomous driving research and prototyping, fully 
   - [Overview](#overview)
   - [Table of Contents](#table-of-contents)
   - [Demos](#demos)
-    - [Emergency Braking (AEB) Demo](#emergency-braking-aeb-demo)
-    - [Blind Spot Detection (BSD) Demo](#blind-spot-detection-bsd-demo)
-    - [Sign Detection \& Detection and classification](#sign-detection--detection-and-classification)
-    - [Traffic Light Detection \& Classification Demo](#traffic-light-detection--classification-demo)
-    - [Latest Lane Detection Demo (v2)](#latest-lane-detection-demo-v2)
-      - [Previous Lane Detection Demo (v1)](#previous-lane-detection-demo-v1)
-    - [YOLOP Lane Detection Demo](#yolop-lane-detection-demo)
-    - [Foxglove Visualization Demo](#foxglove-visualization-demo)
-    - [Segmentation Demo](#segmentation-demo)
   - [Sensor Suite](#sensor-suite)
   - [Microservices Architecture](#microservices-architecture)
   - [Roadmap](#roadmap)
-    - [Perception](#perception)
-    - [Sensor Fusion \& Calibration](#sensor-fusion--calibration)
-    - [Control \& Planning](#control--planning)
-    - [Simulation \& Scenarios](#simulation--scenarios)
-    - [Visualization \& Logging](#visualization--logging)
-    - [Deployment \& Infrastructure](#deployment--infrastructure)
-    - [README To-Dos](#readme-to-dos)
-    - [Other](#other)
   - [Note on Installation](#note-on-installation)
   - [Known Limitations](#known-limitations)
     - [Simulator-Specific Limitations](#simulator-specific-limitations)
@@ -63,6 +45,15 @@ A modular Python project for autonomous driving research and prototyping, fully 
 
 <details>
 <summary>Open demo GIF gallery</summary>
+
+### Multi-Lane Detection Stress Testing
+Evaluation of the multi-lane perception pipeline across various environmental edge cases, including high-glare transitions, low-light tunnels, and heavy atmospheric fog:
+
+<img src="media/demo_gifs/multi-lane.gif" alt="AEB Demo" width="600" height="337" />
+
+**Extended Demo:** [Watch the full video here](https://youtu.be/IvmJ01pYCSE)
+
+---
 
 ### Emergency Braking (AEB) Demo
 
