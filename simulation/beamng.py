@@ -5,8 +5,6 @@ import logging
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from utils.pid_controller import PIDController
-
 from beamngpy import BeamNGpy, Scenario, Vehicle
 from beamngpy.sensors import Camera, Lidar, Radar, GPS, AdvancedIMU
 from foxglove.schemas import Color
@@ -21,6 +19,8 @@ import time
 import math
 import cv2
 from scipy.spatial.transform import Rotation as R
+
+from src.control_planning.mpc_controller import MPCController
 
 #from simulation.perception_client import PerceptionClient
 
@@ -537,26 +537,21 @@ def main():
     enable_tl_det = perception_flags.get('enable_traffic_light_detection', True)
     enable_sign_det = perception_flags.get('enable_sign_detection', True)
     enable_yolop_flag = perception_flags.get('enable_yolop', True)
+    
+    # Load debug display flags
     debug_cv_lane = perception_flags.get('debug_cv_lane_detection', False)
     debug_perspective = perception_flags.get('debug_perspective', False)
-    print(f"[Main] perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} yolop:{enable_yolop_flag} debug:{debug_cv_lane}")
+    debug_obj_det = perception_flags.get('debug_object_detection', False)
+    debug_yolop = perception_flags.get('debug_yolop', False)
+    
+    print(f"[Main] perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} yolop:{enable_yolop_flag}")
+    print(f"[Main] debug windows - lane:{debug_cv_lane} perspective:{debug_perspective} obj:{debug_obj_det} yolop:{debug_yolop}")
 
-    steering_pid = PIDController(**control_cfg['steering_pid'])
-    max_steering_change = control_cfg['max_steering_change']
-    previous_steering = 0.0
+    
+    mpc_controller = MPCController(T=0.1, N=10)
+    print(f"[Main] MPC Controller initialized")
 
-    min_gap = control_cfg['min_gap']
-    target_speed_kph = control_cfg['target_speed_kph']
-    speed_pid = PIDController(
-        Kp=control_cfg['speed_pid']['Kp'],
-        Ki=control_cfg['speed_pid']['Ki'],
-        Kd=control_cfg['speed_pid']['Kd']
-    )
-
-    # Speed control mode: 'cruise' (normal), 'adaptive' (ACC), or 'none' (manual)
-    speed_control_mode = control_cfg['speed_control_mode']
-    print(f"[Main] Speed control mode: {speed_control_mode}")
-
+    previous_steering = 0.0  # For lane detection smoothing
     frame_count = 0
 
     last_time = time.time()
@@ -682,73 +677,100 @@ def main():
                 print(f"[Main] Local perception error: {agg_e}")
                 continue
 
-            steering = steering_pid.update(-effective_deviation, dt)
-            steering = np.clip(steering, -1.0, 1.0)
-            steering_change = steering - previous_steering
-            if abs(steering_change) > max_steering_change:
-                steering = previous_steering + np.sign(steering_change) * max_steering_change
+            # Calculate yaw:
+            # - car_yaw: for Foxglove 3D models (often rotated 180 deg)
+            # - math_yaw: for actual MPC local physics math so it points forward
+            car_yaw = np.arctan2(-direction[1], -direction[0])
+            math_yaw = np.arctan2(direction[1], direction[0])
 
-            throttle = 0.0
-            brake = 0.0
-
-            if speed_control_mode == 'adaptive':
+            # MPC Control logic
+            try:
+                # build current state vector to pass to the mpc controller
+                current_state = np.array([
+                    car_pos[0],           # x position
+                    car_pos[1],           # y position
+                    speed_mps,            # vx (longitudinal velocity)
+                    0.0,                  # vy (lateral velocity)
+                    math_yaw,             # theta (heading angle) - MUST use math_yaw
+                    0.0                   # vtheta (angular velocity)
+                ])
+                
+                # Build waypoints from lane center
+                # Use detected lane deviation (in meters) to stay in lane
+                waypoints = []
+                
+                # deviation > 0 means car is to the right of lane center, so we need to move left
+                target_lateral_offset = effective_deviation 
+                
+                for i in range(10):  # N=10 steps ahead
+                    t_ahead = (i + 1) * 0.1  # 0.1s per step
+                    
+                    # Local forward distance (cap minimum to ensure waypoints project if stopped)
+                    forward_dist = max(speed_mps, 2.0) * t_ahead
+                    
+                    # Local lateral distance: gradually move towards the lane center
+                    # Over 5 steps (0.5s), we fully apply the lateral offset to center the car
+                    blend = min(1.0, (i + 1) / 5.0)
+                    lateral_dist = target_lateral_offset * blend
+                    
+                    # Transform local coordinates (forward_dist, lateral_dist) to global (x, y)
+                    # Using math_yaw assumes standard +X forward, +Y left relative math
+                    x_pred = car_pos[0] + forward_dist * np.cos(math_yaw) - lateral_dist * np.sin(math_yaw)
+                    y_pred = car_pos[1] + forward_dist * np.sin(math_yaw) + lateral_dist * np.cos(math_yaw)
+                    
+                    vx_ref = 15.0  # Target speed 15 m/s (~54 km/h)
+                    waypoints.append((x_pred, y_pred, vx_ref))
+                
+                # build obstacles from obstacle detection (NOT YET IMPLEMENTED as we only have 2d detections but the mpc needs 3d positions)
+                # This will allow MPC to proactively plan around obstacles instead of relying just on AEB
+                obstacles = []
+                if lidar_lane_boundaries is not None:
+                    #placeholder
+                    pass
+                
+                # Compute optimal control with MPC
+                throttle, steering = mpc_controller.compute_control(
+                    current_state=current_state,
+                    waypoints=waypoints,
+                    obstacles=obstacles,
+                    target_speed=10.0
+                )
+                
+                # AEB as fallback
+                # MPC handles proactive avoidance, but AEB acts as safety net for imminent collisions
+                aeb_triggered = False
                 try:
                     radar_front = radars.get('radar_front', None)
-                    radar_result = radar_aeb_acc(radar_front, perception_cfg, speed_kph)
-
-                    ttc = radar_result.get('ttc', float('inf'))
-                    closest_distance = radar_result.get('closest_distance', float('inf'))
-                    closest_velocity = radar_result.get('closest_velocity', float('inf'))
-
-                    if ttc <= 1.0:
-                        # full breaking
-                        print(f"[AEB] EMERGENCY BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
-                        throttle = 0.0
-                        brake = 1.0
-                    elif ttc <= 3.0:
-                        # medium breaking
-                        print(f"[AEB] MEDIUM BRAKING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
-                        throttle = 0.0
-                        brake = 0.3
-                    elif ttc < float('inf'):
-                        # Reduce throttle
-                        print(f"[AEB] WARNING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
-                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt) * 0.5
-                        brake = 0.0
-                    else:
-                        # No object detected normal cruise control
-                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
-                        brake = 0.0
-                    
-                except Exception as radar_e:
-                    print(f"[AEB] Radar processing error: {radar_e}")
-                    throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
-                    brake = 0.0
-
-            elif speed_control_mode == 'cruise':
-                # Normal cruise control (no adaptive features)
-                throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
-                brake = 0.0
-
-            elif speed_control_mode == 'none':
-                # No automatic speed control manual throttle
-                throttle = 0.0
-                brake = 0.0
-            
-            # Limit throttle based on steering angle to prevent spinning out
-            throttle = throttle * (1.0 - 0.3 * abs(steering))
-            throttle = np.clip(throttle, 0.05, 0.3)
-            
-            # Application of the vehicle controls to BeamNG
-            # try:
-            #     vehicle.control(throttle=float(throttle), brake=float(brake), steering=float(steering))
-            # except Exception as e:
-            #     print(f"[Main] Error sending control to vehicle: {e}")
+                    if radar_front:
+                        radar_result = radar_aeb_acc(radar_front, perception_cfg, speed_kph)
+                        ttc = radar_result.get('ttc', float('inf'))
+                        closest_distance = radar_result.get('closest_distance', float('inf'))
+                        
+                        if ttc <= 1.0:
+                            # Emergency braking override MPC throttle
+                            print(f"[AEB] EMERGENCY BRAKING TRIGGERED: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
+                            throttle = 0.0
+                            aeb_triggered = True
+                        elif ttc <= 2.5:
+                            # Warning reduce throttle but let MPC handle steering
+                            print(f"[AEB] WARNING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m - Reducing throttle")
+                            throttle = max(0.0, throttle * 0.5)  # Reduce to half
+                            aeb_triggered = True
+                except Exception as aeb_e:
+                    print(f"[AEB] Radar processing error: {aeb_e}")
                 
-            previous_steering = steering
+                # Apply control to vehicle
+                vehicle.control(throttle=float(throttle), steering=float(steering))
+                previous_steering = steering
+                
+            except Exception as mpc_e:
+                print(f"[MPC] Control computation error: {mpc_e}")
+                throttle = 0.0
+                steering = 0.0
+                vehicle.control(throttle=0.0, steering=0.0)
 
             # Display CV lane detection window
-            if cv_result_image is not None:
+            if debug_cv_lane and cv_result_image is not None:
                 cv_disp = cv2.cvtColor(cv_result_image, cv2.COLOR_RGB2BGR) if len(cv_result_image.shape) == 3 else cv_result_image
                 cv_disp = cv2.resize(cv_disp, (0, 0), fx=0.5, fy=0.5)
                 cv2.imshow('CV Lane Detection', cv_disp)
@@ -775,24 +797,23 @@ def main():
                 except Exception as e:
                     print(f"[YOLOP] Error drawing YOLOP lane mask: {e}")
                     
-            if yolop_displayed:
+            if debug_yolop and yolop_displayed:
                 yolop_disp = cv2.resize(img_bgr_for_display, (0, 0), fx=0.5, fy=0.5)
                 cv2.imshow('YOLOP - Drivable Area & Lanes', yolop_disp)
 
             # Draw and show Combined object detections window
-            try:
-                img_bgr_for_obj = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                combined_img = draw_combined_detections(img_bgr_for_obj, sign_detections, object_detections, traffic_light_detections)
-                combined_disp = cv2.resize(combined_img, (0, 0), fx=0.5, fy=0.5)
-                cv2.imshow('Object Detections', combined_disp)
-            except Exception as draw_e:
-                print(f"[Object Detection] Error drawing detections: {draw_e}")
+            if debug_obj_det:
+                try:
+                    img_bgr_for_obj = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                    combined_img = draw_combined_detections(img_bgr_for_obj, sign_detections, object_detections, traffic_light_detections)
+                    combined_disp = cv2.resize(combined_img, (0, 0), fx=0.5, fy=0.5)
+                    cv2.imshow('Object Detections', combined_disp)
+                except Exception as draw_e:
+                    print(f"[Object Detection] Error drawing detections: {draw_e}")
                 
             fused_confidence = lane_metrics.get('confidence', 0.0)
             
-            # Calculate vehicle yaw from direction
-            car_yaw = np.arctan2(-direction[1], -direction[0])
-            
+            # Lidar setup using car_yaw already calculated above
             lidar_offset = np.array([0.0, -0.35, 1.425])
             car_quat = yaw_rad_to_quaternion(car_yaw)
             rotation = R.from_quat([car_quat[0], car_quat[1], car_quat[2], car_quat[3]])
@@ -843,7 +864,6 @@ def main():
 
             try:
                 # Send vehicle pose (PosesInFrame)
-                car_yaw = np.arctan2(-direction[1], -direction[0])
                 quat_x, quat_y, quat_z, quat_w = yaw_rad_to_quaternion(car_yaw)
                 timestamp_ns = get_timestamp_ns()
                 bridge.send_vehicle_pose(
@@ -862,7 +882,6 @@ def main():
 
             try:
                 # Publish complete TF tree (map - base_link - lidar_top)
-                car_yaw = np.arctan2(-direction[1], -direction[0])
                 quat_x, quat_y, quat_z, quat_w = yaw_rad_to_quaternion(car_yaw)
                 timestamp_ns = get_timestamp_ns()
                 bridge.send_tf_tree(

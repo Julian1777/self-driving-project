@@ -17,7 +17,7 @@ A modular Python project for autonomous driving research and prototyping, fully 
 - **Traffic Lights**: Classification & Detection
 - **Object Detection**: Vehicles, pedestrians, cyclists and more
 - **Multi-Sensor Fusion**: Camera, Lidar, Radar, GPS, IMU <!-- - **Microservices Architecture**: Containerized multi-model inference (Docker), orchestrated via central aggregator -->
-- **Real-Time Control**: PID steering, cruise control (CC), automatic emergency braking (AEB)
+- **Real-Time Control**: Model Predictive Control (MPC) for integrated steering & throttle optimization
 - **Visualization**: Real-time monitoring with Foxglove WebSocket + multiple CV windows
 - **Configuration System**: YAML-based modular settings
   
@@ -26,8 +26,9 @@ A modular Python project for autonomous driving research and prototyping, fully 
 - [VisionPilot: Autonomous Driving Simulation, Computer Vision \& Real-Time Perception (BeamNG.tech)](#visionpilot-autonomous-driving-simulation-computer-vision--real-time-perception-beamngtech)
   - [Overview](#overview)
   - [Table of Contents](#table-of-contents)
+  - [System Architecture \& Data Flow](#system-architecture--data-flow)
   - [Demos](#demos)
-    - [Multi-Lane Detection Stress Testing](#multi-lane-detection-stress-testing)
+    - [Multi-Lane Detection](#multi-lane-detection-stress-testing)
     - [Emergency Braking (AEB) Demo](#emergency-braking-aeb-demo)
     - [Blind Spot Detection (BSD) Demo](#blind-spot-detection-bsd-demo)
     - [Sign Detection \& Detection and classification](#sign-detection--detection-and-classification)
@@ -46,9 +47,57 @@ A modular Python project for autonomous driving research and prototyping, fully 
 
 
 
+## System Architecture & Data Flow
+
+The following diagram illustrates the complete data flow from the simulation environment through perception, control, and final actuation:
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                     BeamNG.tech Simulation                      │
+│  (Camera, Lidar, Radar, GPS, IMU, Vehicle Speed, Orientation)   │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ Sensor Data Stream
+┌───────────────────────────────▼─────────────────────────────────┐
+│                      Perception Layer                           │
+│                                                                 │
+│  ┌──────────────┐   ┌───────────────┐   ┌───────────────────┐   │
+│  │ CV Lane Det. │   │  YOLOP Model  │   │ Object Detection  │   │
+│  │ (Lane Center,│ + │ (Segmentation,│ + │ (Vehicles, Signs, │   │
+│  │  Deviation)  │   │  Drivable)    │   │  Traffic Lights)  │   │
+│  └──────────────┘   └───────────────┘   └───────────────────┘   │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ Waypoints, Lane Metrics, Obstacles
+┌───────────────────────────────▼─────────────────────────────────┐
+│                  Planning & Control Layer                       │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │              Model Predictive Control (MPC)               │  │
+│  │  - Plans 1-sec trajectory based on exact vehicle state    │  │
+│  │  - Optimizes smooth Steering + Throttle simultaneously    │  │
+│  │  - Constrained by vehicle dynamics & physical bounds      │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ Proposed Control (Steering, Throttle)
+┌───────────────────────────────▼─────────────────────────────────┐
+│                     Active Safety Layer                         │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │             Automatic Emergency Braking (AEB)             │  │
+│  │  - Monitors continuous Radar TTC (Time-To-Collision)      │  │
+│  │  - Overrides MPC throttle limits if collision is imminent │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ Final Actuated Commands
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 Vehicle Control (BeamNG.tech)                   │
+│                 (Steering, Throttle, Braking)                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ## Demos
 
-### Multi-Lane Detection Stress Testing
+### Multi-Lane Detection
 Evaluation of the multi-lane perception pipeline across various environmental edge cases, including high-glare transitions, low-light tunnels, and heavy atmospheric fog:
 
 <img src="media/demo_gifs/multi-lane.gif" alt="AEB Demo" width="600" height="337" />
@@ -175,7 +224,7 @@ The vehicle is equipped with a comprehensive multi-sensor suite for autonomous p
 
 > Configuration files are located in the `/config` directory:
 
-## Microservices Architecture
+<!-- ## Microservices Architecture
 
 > **Note:** The microservices architecture is documented below as the intended design. **Currently, for active development and rapid iteration, all perception models run locally in-process** (bypassing Docker containers and the aggregator). This allows faster prototyping and validation of the complete pipeline. The containerized microservices will be re-integrated once the core perception, sensor fusion, and control systems are finalized and validated.
 
@@ -218,7 +267,49 @@ Extract individual results + visualize
 **Modularity**: Add/remove services without modifying BeamNG code  
 **Scalability**: Easy horizontal scaling with container orchestration  
 **Fault Tolerance**: Individual service failures don't break the pipeline  
-**Reusability**: Services can be used independently or together  
+**Reusability**: Services can be used independently or together
+-->
+
+## Control Architecture Evolution: PID → MPC
+
+VisionPilot has transitioned from traditional PID-based control to advanced **Model Predictive Control (MPC)** for superior performance:
+
+| Aspect | PID Control (Legacy) | MPC Control (Current) |
+|--------|---------------------|----------------------|
+| **Strategy** | Reactive (error-based) | Predictive (horizon-based) |
+| **Prediction** | None - responds to current error | Looks 1 second ahead |
+| **Steering Control** | Separate lateral controller | Integrated optimization |
+| **Throttle Control** | Separate cruise control | Integrated optimization |
+| **Decision Making** | Independent (steering ≠ throttle) | Simultaneous & coupled |
+| **Physics Awareness** | Limited | Full vehicle dynamics model |
+| **Comfort** | May be jerky/oscillatory | Smooth by design (cost-weighted) |
+| **Obstacle Handling** | Reactive braking only | Proactive path planning |
+| **Computational Load** | Low (~1ms) | Medium (~20ms) |
+| **Tuning Complexity** | High (multiple PIDs) | Lower (cost matrices Q, R) |
+
+### Why MPC?
+
+MPC fundamentally changes how the vehicle makes decisions:
+- **Looks ahead**: Plans the next 1 second of motion
+- **Optimizes together**: Steering and throttle decisions are made simultaneously, respecting vehicle physics
+- **Respects constraints**: Hard physical limits (steering angle, acceleration) are built in
+- **Smooth control**: The cost function naturally penalizes jerky inputs
+
+### Layered Safety Architecture: MPC + AEB
+
+VisionPilot uses a **two-layer safety approach** that combines proactive planning with reactive fallback:
+
+**How it works:**
+1. **MPC computes optimal control** considering lane following and smooth acceleration
+2. **AEB monitors radar** for imminent collisions:
+   - **TTC ≤ 1.0s**: Emergency brake (throttle = 0, acts as safety net)
+   - **TTC ≤ 2.5s**: Reduce throttle to 50% (MPC still controls steering for avoidance)
+
+**Benefits:**
+- **Proactive**: MPC plans around obstacles smoothly
+- **Reactive**: AEB catches any collision MPC didn't anticipate
+- **Robust**: Defense-in-depth approach reduces crash risk
+- **Future-proof**: When Lidar 3D detection is integrated into MPC obstacles, AEB becomes rarely triggered
 
 ## Roadmap
 
@@ -234,14 +325,12 @@ Extract individual results + visualize
 - [x] CV Lane Detection (Traditional Computer Vision)
 - [x] Integrate Majority Voting system for CV
 - [x] Lighting Condition Detection
-- [x] ⭐ 💤 Semantic Segmentatation (Already built not implemented here yet)
-  - [ ]  Panoptic segmentation (instance + semantic)
 - [x] Real-Time Object Detection (Cars, Trucks, Buses, Pedestrians, Cyclists)
-- [ ] 🔥 Speed Estimation using detection from camera and lidar
+- [ ] 🔥🔥 Speed Estimation using detection from camera and lidar
   - [ ] Multiple Object Tracking (MOT)
 - [x] 🔥🔥 Handle dashed lines better in lane detection
 - [ ] Road Marking Detection (Arrows, Crosswalks, Stop Lines)
-- [ ] 🔥 Lidar Object Detection 3D
+- [ ] 🔥🔥🔥 Lidar Object Detection 3D
 - [ ] 💤 Ocluded Object Detection (Detect objects that are partially blocked or not visible in the camera view using radar/lidar)
 - [x] Detect multiple lanes
 - [ ] 💤 Multi Camera Setup (Will implement after all other camera-based features are finished)
@@ -255,7 +344,7 @@ Extract individual results + visualize
 - [x] Integrate Lidar
 - [ ] Integrate GPS
 - [ ] Integrate IMU
-- [ ] 🔥🔥 Ultrasonic Sensor Integration
+- [ ] Ultrasonic Sensor Integration
 - [ ] 💤💤 SLAM (simultaneous localization and mapping)
   - [ ] Build HD Map of the BeamNG.tech map
   - [ ] Localize Vehicle on HD Map
@@ -265,30 +354,20 @@ Extract individual results + visualize
 - [x] Integrate vehicle control (Throttle, Steering, Braking Implemented) (PID needs further tuning)
 - [x] Integrate PIDF controller
 - [x] ⭐ Adaptive Cruise Control (Currently only basic Cruise Control implemented)
-- [x] Automatic Emergency Braking AEB 
-  - [ ] Obstacle Avoidance (Steering away from obstacles instead of just braking)
-- [ ] 🔥 Model Predictive Control MPC (More advanced control strategy that optimizes control inputs over a future time horizon)
+- [x] Automatic Emergency Braking AEB (Safety fallback layer for imminent collisions)
+  - [ ] Obstacle Avoidance via MPC (Proactive path planning through constraint formulation)
+- [x] 🔥 Model Predictive Control MPC (Integrated with CasADi IPOPT solver, replaces PID control)
 - [ ] Curve Speed Optimization (Slow down for sharp curves based on lane curvature)
-- [ ] Trajectory Predcition for surrounding vehicles
+- [ ] Trajectory Prediction for surrounding vehicles
 - [x] 🔥 Blindspot Monitoring (Using left/right rear short range radars)
 - [ ] Traffic Rule Enforcement (Stop at red lights, stop signs, yield signs)
 - [ ] Dynamic Target Speed based on Speed Limit Signs
 - [ ] Global Path planning
 - [ ] Local Path planning
-- [ ] 🔥 Lane Change Logic
+- [ ] 🔥 Lane Change Logic (MPC)
   - [ ] Check Blindspots before lane change
   - [ ] Signal Lane Change
 - [ ] Parking Logic (Path finding / Parallel or Perpendicular)
-- [ ] 💤💤 Advanced traffic participant prediction (trajectory, intent)
-
-### Simulation & Scenarios
-
-- [x] Integrate and test in BeamNG.tech simulation
-- [x] Modularize and clean up BeamNG.tech pipeline
-- [ ] Fog Weather conditions
-- [ ] Traffic scenarios: driving in heavy, moderate, and light traffic
-- [ ] Test all Systems in different lighting conditions (Day, Night, Dawn/Dusk, Tunnel)
-- [ ] 💤💤 Test using actual RC car
 
 ### Visualization & Logging
 
@@ -299,7 +378,7 @@ Extract individual results + visualize
 - [ ] Real time Annotations Overlay in Foxglove
 - [ ] Show predicted trajectories in Foxglove
 - [ ] Show Global and local path plans in Foxglove
-- [ ] Live Map Visualization
+- [ ] 💤 Live Map Visualization
 
 > **Note:** Considering moving away from Foxglove entirely to build a custom dashboard. Not a priority at this time.
 
@@ -316,7 +395,7 @@ Extract individual results + visualize
 
 - [x] Add detailed documentation (Lane Det first)
 - [x] Add demo images and videos to README
-- [ ] 💤 Add performance benchmarks section
+- [ ] 💤💤 Add performance benchmarks section
 - [x] Add Table of Contents for easier navigation
 
 ### Other
@@ -377,6 +456,17 @@ YOLOP/YOLOPX: [Anchor-free multi-task learning network for panoptic driving perc
   volume={148},
   pages={110152},
   year={2024}
+}
+```
+MPC Controller: [DRL-MPC](https://github.com/ZITingHUANG1/DRL-MPC)
+```bibtex
+@misc{huang_drlmpc,
+  author       = {ZITing Huang},
+  title        = {DRL-MPC: Integrating Reinforcement Learning and Model Predictive Control for Enhancing Safety in Automated Vehicle Systems},
+  year         = {2024},
+  publisher    = {GitHub},
+  journal      = {GitHub repository},
+  url          = {https://github.com/ZITingHUANG1/DRL-MPC}
 }
 ```
 

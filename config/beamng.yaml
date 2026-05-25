@@ -1,17 +1,19 @@
 simulation:
   host: "localhost"
-  port: 64256
+  port: 5777
   home: "C:\\BeamNG.tech.v0.38.5.0"
   deterministic_fps: 60
 
 perception:
   enable_cv_lane_detection: true
-  debug_cv_lane_detection: true
+  debug_cv_lane_detection: false
   enable_object_detection: true
+  debug_object_detection: false
   enable_traffic_light_detection: true
   enable_sign_detection: true
   enable_yolop: true
-  debug_perspective: true
+  debug_yolop: false
+  debug_perspective: false
 
 vehicles:
   etk800:

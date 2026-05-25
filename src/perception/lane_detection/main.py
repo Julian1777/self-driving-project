@@ -118,13 +118,14 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
         all_lanes = lane_info['all_lanes']
 
         # extract left and right fitx
-        # Use current lane or fallback to first lane
+        # Use current lane. If STILL None (extreme error), fallback to closest heuristic
         if current_lane_data:
             lane_data = current_lane_data['lane_data']
         else:
             first_lane = list(all_lanes.values())[0] if all_lanes else None
             if first_lane:
                 lane_data = first_lane['lane_data']
+                print("[Lane Selection] Fallback to first lane triggered!")
             else:
                 print("No lane data available")
                 result = img.copy()
