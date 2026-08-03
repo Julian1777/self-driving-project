@@ -15,8 +15,8 @@ A modular Python project for autonomous driving research and prototyping, fully 
 - **Multi-Lane Detection**: YOLOP, Traditional CV
 - **Traffic Sign**: Classification & Detection
 - **Traffic Lights**: Classification & Detection
-- **Object Detection**: Vehicles, pedestrians, cyclists and more
-- **Multi-Sensor Fusion**: Camera, Lidar, Radar, GPS, IMU <!-- - **Microservices Architecture**: Containerized multi-model inference (Docker), orchestrated via central aggregator -->
+- **Multi-Class Object Detection**: Vehicles, pedestrians, cyclists and more
+- **Multi-Sensor Fusion**: Camera, Lidar, Radar, GPS, IMU<!-- - **Microservices Architecture**: Containerized multi-model inference (Docker), orchestrated via central aggregator -->
 - **Real-Time Control**: PID steering, cruise control (CC), automatic emergency braking (AEB)
 - **Visualization**: Real-time monitoring with Foxglove WebSocket + multiple CV windows
 - **Configuration System**: YAML-based modular settings
@@ -28,16 +28,17 @@ A modular Python project for autonomous driving research and prototyping, fully 
   - [Table of Contents](#table-of-contents)
   - [Demos](#demos)
     - [Multi-Lane Detection Stress Testing](#multi-lane-detection-stress-testing)
-    - [Emergency Braking (AEB) Demo](#emergency-braking-aeb-demo)
-    - [Blind Spot Detection (BSD) Demo](#blind-spot-detection-bsd-demo)
-    - [Sign Detection \& Detection and classification](#sign-detection--detection-and-classification)
-    - [Traffic Light Detection \& Classification Demo](#traffic-light-detection--classification-demo)
-    - [Latest Lane Detection Demo (v2)](#latest-lane-detection-demo-v2)
-    - [YOLOP Lane Detection Demo](#yolop-lane-detection-demo)
-    - [Foxglove Visualization Demo](#foxglove-visualization-demo)
-    - [Segmentation Demo](#segmentation-demo)
+    - [Emergency Braking (AEB)](#emergency-braking-aeb-demo)
+    - [Blind Spot Detection (BSD)](#blind-spot-detection-bsd)
+    - [Sign Detection \& Classification](#sign-detection--classification)
+    - [Traffic Light Detection \& Classification](#traffic-light-detection--classification-demo)
+    - [Lane Detection & Keeping (v2)](#lane-detection--keeping-v2)
+    - [Previous Lane Detection & Keeping (v1)](#previous-lane-detection--keeping-v1)
+    - [YOLOP Lane Detection](#yolop-lane-detection)
+    - [Foxglove Visualization](#foxglove-visualization)
+    - [Multi Camera Scene Segmentation](#multi-camera-scene-segmentation)
   - [Sensor Suite](#sensor-suite)
-  - [Microservices Architecture](#microservices-architecture)
+  <!-- - [Microservices Architecture](#microservices-architecture) -->
   - [Roadmap](#roadmap)
   - [Note on Installation](#note-on-installation)
   - [Known Limitations](#known-limitations)
@@ -57,7 +58,7 @@ Evaluation of the multi-lane perception pipeline across various environmental ed
 
 ---
 
-### Emergency Braking (AEB) Demo
+### Emergency Braking (AEB)
 
 Watch the Emergency Braking System (AEB) in action with real-time radar filtering and collision avoidance:
 
@@ -67,14 +68,14 @@ Watch the Emergency Braking System (AEB) in action with real-time radar filterin
 
 ---
 
-### Blind Spot Detection (BSD) Demo
+### Blind Spot Detection (BSD)
 See the Blind Spot Detection (BSD) system in action using radar data to identify vehicles in the blind spot:
 <img src="media/demo_gifs/bsd_demo.gif" alt="Blind Spot Detection Demo" width="600" height="337" />
 **Extended Demo:** [Watch the full video here](https://www.youtube.com/watch?v=Z8Y2-MpmrRg)
 
 ---
 
-### Sign Detection & Detection and classification
+### Sign Detection & Classification
 
 This demo shows real-time traffic sign detection and classification:
 
@@ -86,7 +87,7 @@ This demo shows real-time traffic sign detection and classification:
 
 ---
 
-### Traffic Light Detection & Classification Demo
+### Traffic Light Detection & Classification
 
 This demo shows real-time traffic light detection and classification:
 
@@ -96,7 +97,7 @@ This demo shows real-time traffic light detection and classification:
 
 ---
 
-### Latest Lane Detection Demo (v2)
+### Lane Detection & Keeping (v2)
 
 Watch the improved autonomous lane keeping demo (v2) in BeamNG.tech, featuring smoother fused CV+SCNN lane detection, stable PID steering, and robust cruise control:
 
@@ -106,7 +107,7 @@ Watch the improved autonomous lane keeping demo (v2) in BeamNG.tech, featuring s
 
 > Note: Very low-light (tunnel) scenarios are not yet supported.
 
-### Previous Lane Detection Demo (v1)
+### Previous Lane Detection & Keeping (v1)
 
 The original demo is still available for reference:
 
@@ -114,7 +115,7 @@ The original demo is still available for reference:
 
 ---
 
-### YOLOP Lane Detection Demo
+### YOLOP Lane Detection
 Watch both the raw model segmentation output and the multiple processed lanes on a highway video.
 
 <img src="media/demo_gifs/yolop.gif" alt="YOLOP Lane Detection Demo" width="600" height="337" />
@@ -125,7 +126,7 @@ Watch both the raw model segmentation output and the multiple processed lanes on
 
 ---
 
-### Foxglove Visualization Demo
+### Foxglove Visualization
 
 See real-time LiDAR point cloud streaming and autonomous vehicle telemetry in Foxglove Studio:
 
@@ -135,7 +136,7 @@ See real-time LiDAR point cloud streaming and autonomous vehicle telemetry in Fo
 
 ---
 
-### Segmentation Demo
+### Multi Camera Scene Segmentation
 
 See real-time image segmentation using front and rear cameras:
 
@@ -233,7 +234,6 @@ Extract individual results + visualize
   - [x] Traffic light classification & Detection (CNN / YOLO)
   - [x] Multi-class object detection (Cars, Trucks, Buses, Pedestrians, Cyclists)
   - [ ] Road Marking Detection (Arrows, Crosswalks, Stop Lines)
-  - [ ] Multi-Object Tracking (MOT)
 
 - [ ] 3D Perception & Spatial Estimation
   - [ ] Speed Estimation using detection from camera and lidar
@@ -311,13 +311,13 @@ Extract individual results + visualize
 - [x] Modular YAML configuration system
 - [x] Real-time drive logging and telemetry
 
+> **Note:** Considering moving away from Foxglove entirely to build a custom dashboard. Not a priority at this time.
+
 - [ ] Spatial & Path Visualization
   - [ ] 🔥 Birds-Eye View (BEV)
   - [ ] Inverse Perspective Mapping (IPM)
   - [ ] Map & Real Time Perception Overlay
   - [ ] Trajectory & Path Plan Overlays in Foxglove
-
-> **Note:** Considering moving away from Foxglove entirely to build a custom dashboard. Not a priority at this time.
 
 ### Deployment & Infrastructure
 
@@ -334,7 +334,7 @@ Extract individual results + visualize
 - [ ] Performance Benchmarks
 - [ ] Documentation
 
-> Driver Monitoring System would've been pretty cool but human drivers are not implemented in BeamNG.tech or Carla
+> Driver Monitoring would've been pretty cool but human drivers are not implemented in BeamNG.tech or Carla
 
 ## Legend
 
@@ -370,8 +370,8 @@ Extract individual results + visualize
 
 **Special Thanks:**
 
-- Kaggle for free GPU resources (model training)
-- Mr. Pratt (teacher/supervisor) for guidance
+- Kaggle for free GPU resources (Model Training)
+- Mr. Pratt (Teacher/Supervisor) for guidance
 
 ## Acknowledgements
 
