@@ -10,9 +10,6 @@ from src.perception.lane_detection.visualization import draw_multiple_lanes_over
 from src.perception.lane_detection.cv.multi_lane.multi_lane_finder import detect_multiple_lanes
 from src.perception.lane_detection.cv.multi_lane.lane_selector import get_current_lane
 
-from src.perception.lane_detection.confidence import compute_confidence_cv
-
-
 import numpy as np
 import cv2
 
@@ -118,13 +115,14 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
         all_lanes = lane_info['all_lanes']
 
         # extract left and right fitx
-        # Use current lane or fallback to first lane
+        # Use current lane or fallback to first
         if current_lane_data:
             lane_data = current_lane_data['lane_data']
         else:
             first_lane = list(all_lanes.values())[0] if all_lanes else None
             if first_lane:
                 lane_data = first_lane['lane_data']
+                print("[Lane Selection] Fallback to first lane")
             else:
                 print("No lane data available")
                 result = img.copy()
@@ -150,7 +148,6 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
         current_fit = (left_fit, right_fit)
         metrics_result = calculate_curvature_and_deviation(ploty, left_fitx, right_fitx, binary_warped, original_image_width=img.shape[1])
 
-        confidence = compute_confidence_cv(left_fitx, right_fitx, ploty, current_fit=current_fit, previous_fit=previous_fit)
         previous_fit = current_fit
 
         if metrics_result is None or (isinstance(metrics_result, tuple) and all(x is None for x in metrics_result)):

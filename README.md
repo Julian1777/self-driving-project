@@ -224,117 +224,122 @@ Extract individual results + visualize
 
 ### Perception
 
-- [x] Sign classification & Detection (CNN / YOLO)
-- [x] Traffic light classification & Detection (CNN / YOLO)
-- [x] Lane detection Fusion (YOLOP / CV)
-- [x] 🔥🔥 YOLOP integration
-  - [x] Drivable area segmentation
-  - [x] Lane detection (segmentation output)
-  - [x] Object detection
-- [x] CV Lane Detection (Traditional Computer Vision)
-- [x] Integrate Majority Voting system for CV
-- [x] Lighting Condition Detection
-- [x] ⭐ 💤 Semantic Segmentatation (Already built not implemented here yet)
-  - [ ]  Panoptic segmentation (instance + semantic)
-- [x] Real-Time Object Detection (Cars, Trucks, Buses, Pedestrians, Cyclists)
-- [ ] 🔥 Speed Estimation using detection from camera and lidar
-  - [ ] Multiple Object Tracking (MOT)
-- [x] 🔥🔥 Handle dashed lines better in lane detection
-- [ ] Road Marking Detection (Arrows, Crosswalks, Stop Lines)
-- [ ] 🔥 Lidar Object Detection 3D
-- [ ] 💤 Ocluded Object Detection (Detect objects that are partially blocked or not visible in the camera view using radar/lidar)
-- [x] Detect multiple lanes
-- [ ] 💤 Multi Camera Setup (Will implement after all other camera-based features are finished)
-- [ ] 💤 Overtaking, Merging (Will be part of Path Planning)
+- [ ] 2D Object & Scene Detection
+  - [x] Sign classification & Detection (CNN / YOLO)
+  - [x] Traffic light classification & Detection (CNN / YOLO)
+  - [x] Multi-class object detection (Cars, Trucks, Buses, Pedestrians, Cyclists)
+  - [ ] Road Marking Detection (Arrows, Crosswalks, Stop Lines)
+  - [ ] Multi-Object Tracking (MOT)
 
-### Sensor Fusion & Calibration
+- [ ] 3D Perception & Spatial Estimation
+  - [ ] Speed Estimation using detection from camera and lidar
+  - [ ] Lidar Object Detection
+  - [ ] 💤 Multi Camera Setup (Will implement after all other camera-based features are finished)
+  - [ ] Multi-Object Tracking (MOT)
+  
+- [x] Lane & Drivable Area Segmentation
+  - [x] Lane detection Fusion (YOLOP / CV)
+  - [x] 🔥 YOLOP integration
+    - [x] Drivable area segmentation
+    - [x] Lane detection (segmentation output)
+    - [x] Object detection
+  - [x] Traditional CV Lane Detection (with Majority Voting & Lighting condition Detection)
+    - [x] Improve voting system and add additional features
+    - [x] Lighting Condition Detection
+  - [x] Detect multiple lanes
+  - [x] 🔥 Handle dashed lines better in lane detection
 
-- [ ] Kalman Filtering
-  - [ ] Extended
-- [x] Integrate Radar
-- [x] Integrate Lidar
-- [ ] Integrate GPS
-- [ ] Integrate IMU
-- [ ] 🔥🔥 Ultrasonic Sensor Integration
-- [ ] 💤💤 SLAM (simultaneous localization and mapping)
-  - [ ] Build HD Map of the BeamNG.tech map
-  - [ ] Localize Vehicle on HD Map
+### Sensor Fusion
+
+- [ ] Sensor Hardware Integration
+  - [x] Integrate Radar
+  - [x] Integrate Lidar
+  - [ ] Integrate GPS
+  - [ ] Integrate IMU
+  - [ ] Ultrasonic Sensor Integration
+
+- [ ] State Estimation & Mapping
+  - [ ] Kalman Filtering (Standard & Extended)
+  - [ ] 💤 SLAM (simultaneous localization and mapping)
+    - [ ] Build HD Map of the BeamNG.tech map
+    - [ ] Localize Vehicle on HD Map
 
 ### Control & Planning
 
-- [x] Integrate vehicle control (Throttle, Steering, Braking Implemented) (PID needs further tuning)
-- [x] Integrate PIDF controller
-- [x] ⭐ Adaptive Cruise Control (Currently only basic Cruise Control implemented)
-- [x] Automatic Emergency Braking AEB 
-  - [ ] Obstacle Avoidance (Steering away from obstacles instead of just braking)
-- [ ] 🔥 Model Predictive Control MPC (More advanced control strategy that optimizes control inputs over a future time horizon)
-- [ ] Curve Speed Optimization (Slow down for sharp curves based on lane curvature)
-- [ ] Trajectory Predcition for surrounding vehicles
-- [x] 🔥 Blindspot Monitoring (Using left/right rear short range radars)
-- [ ] Traffic Rule Enforcement (Stop at red lights, stop signs, yield signs)
-- [ ] Dynamic Target Speed based on Speed Limit Signs
-- [ ] Global Path planning
-- [ ] Local Path planning
-- [ ] 🔥 Lane Change Logic
-  - [ ] Check Blindspots before lane change
-  - [ ] Signal Lane Change
-- [ ] Parking Logic (Path finding / Parallel or Perpendicular)
-- [ ] 💤💤 Advanced traffic participant prediction (trajectory, intent)
+- [ ] Low Level Motion Control
+  - [x] Vehicle Control integration (Throttle, Steering, Braking)
+  - [x] Integrate PIDF controller for steering and speed control
+    - [ ] Improve PIDF controller tuning
+  - [ ] 💤 Model Predictive Control (MPC) for more advanced control strategies
+
+- [ ] Safety & Driving Assist
+  - [ ] Adaptive Cruise Control (ACC)
+    - [x] Cruise Control (CC)
+  - [x] Automatic Emergency Braking (AEB)
+  - [x] 🔥 Blind Spot Monitoring (BSD)
+  - [ ] Dynamic Target Speed
+  - [ ] Curve Speed Optimization
+  
+- [ ] Tactical & Behavior Planning
+  - [ ] Behavior Tree Architecture (Stop, Yield, Lane Change, Overtake)
+  - [ ] Traffic Rule Enforcement (Stop at red lights, stop signs, yield signs)
+  - [ ] 🔥 Lane Change Logic (Check Blindspot, Signal, Execute)
+  - [ ] Obstacle Avoidance (Depends on Behavior Tree)
+  - [ ] Parking Logic (Parallel / Perpendicular Path Finding)
+
+- [ ] Trajectory & Path Planning
+  - [ ] Frenet Frame Transformation
+  - [ ] Global Path Planning
+  - [ ] Local Path Planning
+  - [ ] Trajectory Prediction (Surrounding Vehicle Intent) 
 
 ### Simulation & Scenarios
 
 - [x] Integrate and test in BeamNG.tech simulation
 - [x] Modularize and clean up BeamNG.tech pipeline
-- [ ] Fog Weather conditions
-- [ ] Traffic scenarios: driving in heavy, moderate, and light traffic
-- [ ] Test all Systems in different lighting conditions (Day, Night, Dawn/Dusk, Tunnel)
-- [ ] 💤💤 Test using actual RC car
+- [ ] Environmental Conditions (Fog, Night, Dawn/Dusk, Tunnels/Low-Light)
+- [ ] Traffic scenarios (Light, Moderate, Heavy)
+- [ ] 💤 Physical RC Deployment
 
 ### Visualization & Logging
 
 - [x] ⭐ Full Foxglove visualization integration (Overhaul needed)
 - [x] Modular YAML configuration system
 - [x] Real-time drive logging and telemetry
-- [ ] 🔥 Birds eye view BEV (Top down view of vehicle and surroundings)
-- [ ] Real time Annotations Overlay in Foxglove
-- [ ] Show predicted trajectories in Foxglove
-- [ ] Show Global and local path plans in Foxglove
-- [ ] Live Map Visualization
+
+- [ ] Spatial & Path Visualization
+  - [ ] 🔥 Birds-Eye View (BEV)
+  - [ ] Inverse Perspective Mapping (IPM)
+  - [ ] Map & Real Time Perception Overlay
+  - [ ] Trajectory & Path Plan Overlays in Foxglove
 
 > **Note:** Considering moving away from Foxglove entirely to build a custom dashboard. Not a priority at this time.
 
 ### Deployment & Infrastructure
 
-- [x] Containerize Models for easy deployment and scalability
-  - [x] ⭐ Microservices Architecture (Aggregator + individual services)
-  - [x] Message Broker (Redis support in docker-compose)
-  - [x] Docker Compose orchestration
-  - [x] Aggregator service (concurrent service orchestration)
+- [ ] 💤 Microservices Architecture
+  - [ ] Containerize models with Docker
+  - [ ] Aggregator service for concurrent inference orchestration
+  - [ ] Message Broker (Redis)
 
-
-### README To-Dos
-
-- [x] Add detailed documentation (Lane Det first)
-- [x] Add demo images and videos to README
-- [ ] 💤 Add performance benchmarks section
-- [x] Add Table of Contents for easier navigation
-
-### Other
+### Meta & Documentation
 
 - [x] Vibe-Code a website for the project
 - [x] Redo project structure for better modularity
+- [ ] README Demo Media
+- [ ] Performance Benchmarks
+- [ ] Documentation
 
 > Driver Monitoring System would've been pretty cool but human drivers are not implemented in BeamNG.tech or Carla
 
 ## Legend
 
-> 🔥 = High Priority
+> 🔥  High Priority
 
-> ⭐ = Complete but still being improved/tuned/changed (not final version)
+> ⭐  Refining / In Progress (Working baseline, needs tuning and improvements)
 
-> 💤 = Minimal Priority, can be addressed later
+> 💤  Backlog / Postponed (Nice to have, deferred)
 
-> 💤💤 = Very Low Priority, may not be implement
 
 ## Note on Installation
 

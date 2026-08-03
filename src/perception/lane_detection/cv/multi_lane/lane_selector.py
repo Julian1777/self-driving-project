@@ -33,6 +33,9 @@ def get_current_lane(lanes, vehicle_center=None, image_width=None):
     
     current_lane = None
     classified_lanes = {}
+
+    min_dist = float('inf')
+    closest_lane = None
     
     for lane in lanes:
         left_boundary_x = lane['left_fitx'][-1]
@@ -55,7 +58,8 @@ def get_current_lane(lanes, vehicle_center=None, image_width=None):
             'left_x': left_boundary_x,
             'right_x': right_boundary_x
         }
-        
+
+        # check strict boundry inclusion
         if left_boundary_x <= vehicle_center <= right_boundary_x:
             position = (vehicle_center - left_boundary_x) / (right_boundary_x - left_boundary_x)
             current_lane = {
@@ -64,6 +68,21 @@ def get_current_lane(lanes, vehicle_center=None, image_width=None):
                 'position_in_lane': position,
                 'lane_data': lane
             }
+        # Keep track of closest lane as fallback
+        lane_center_x = (left_boundary_x + right_boundary_x) / 2.0
+        dist = abs(vehicle_center - lane_center_x)
+        if dist < min_dist:
+            min_dist = dist
+            closest_lane = {
+                'lane_id': lane_id,
+                'lane_class': lane_class,
+                'position_in_lane': 0.5, # approx center
+                'lane_data': lane
+            }
+                
+        # if outside of bounds return to closest lane
+        if current_lane is None and closest_lane is not None:
+            current_lane = closest_lane
     
     return {
         'current_lane': current_lane,

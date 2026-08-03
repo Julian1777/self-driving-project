@@ -7,10 +7,10 @@ MEDIUM_LOW_THRESHOLD = 100
 MEDIUM_BRIGHT_THRESHOLD = 180
 BRIGHT_THRESHOLD = 200
 
-# LAB L-channel thresholds (white lanes)
-L_THRESH_DARK = (170, 255)
-L_THRESH_MEDIUM = (180, 255)
-L_THRESH_BRIGHT = (220, 255)
+# LAB L-channel thresholds (white lanes) recalibrated
+L_THRESH_DARK = (160, 255)
+L_THRESH_MEDIUM = (210, 255)
+L_THRESH_BRIGHT = (210, 255)
 L_THRESH_DEFAULT = (200, 255)
 
 # LAB B-channel thresholds (yellow lanes)
@@ -19,8 +19,9 @@ B_THRESH_MEDIUM = (150, 200)
 B_THRESH_BRIGHT = (155, 200)
 B_THRESH_DEFAULT = (150, 200)
 
-# HLS S-channel thresholds (saturation)
+# HLS S-channel thresholds (saturation) lowered
 S_THRESH_DARK = (120, 255)
+S_THRESH_MEDIUM = (180, 255)
 S_THRESH_BRIGHT = (180, 255)
 S_THRESH_DEFAULT = (230, 255)
 
@@ -238,6 +239,8 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False, yolop_
     # s channel for saturation
     if avg_brightness > BRIGHT_THRESHOLD:
         s_thresh = S_THRESH_BRIGHT
+    elif avg_brightness > MEDIUM_BRIGHT_THRESHOLD:
+        s_thresh = S_THRESH_MEDIUM
     elif avg_brightness < DARK_THRESHOLD:
         s_thresh = S_THRESH_DARK
     else:
@@ -252,8 +255,8 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False, yolop_
     b_pixel_count = np.sum(b_binary)
     include_b_channel = b_pixel_count >= B_PIXEL_THRESHOLD
     
-    # l channel weighted 2x for white lane detection
-    features = [hsv_binary, l_binary, l_binary, s_binary]
+    # Build feature list HSV gets 2 votes, L gets 1, S gets 1
+    features = [hsv_binary, hsv_binary, l_binary, s_binary]
     
     if include_b_channel:
         features.append(b_binary)
@@ -263,26 +266,39 @@ def adaptive_majority_vote(image, avg_brightness, include_gradient=False, yolop_
     
     if include_gradient:
         features.append(grad_binary)
-        
+    
+    # add yolop as a vote if the mask is avaliable
     if yolop_lane_mask is not None:
-        features.append(yolop_lane_mask)
-        print(f"[Thresholding] Including YOLOP lane mask: {np.sum(yolop_lane_mask)} pixels")
+        yolop_binary = (yolop_lane_mask > 0).astype(np.uint8)
+        features.append(yolop_binary)
+        print(f"[Thresholding] Including YOLOP as voting feature: {np.sum(yolop_binary)} pixels")
     
     n_features = len(features)
     
+    # majority-based, adjusted for feature count since its dynamic
+    # voting thresholds dark 50%, medium and bright around 60%
     if avg_brightness < MEDIUM_LOW_THRESHOLD:
         n_vote = max(2, n_features // 2)
         print(f"[Thresholding] Dark mode: voting {n_vote}/{n_features}")
     elif avg_brightness < MEDIUM_BRIGHT_THRESHOLD:
-        n_vote = max(3, n_features // 2 + 1)
+        n_vote = max(3, (n_features * 3) // 5)
         print(f"[Thresholding] Medium mode: voting {n_vote}/{n_features}")
     else:
-        n_vote = max(3, n_features // 2 + 1)
+        n_vote = max(3, (n_features * 3) // 5)
         print(f"[Thresholding] Bright mode: voting {n_vote}/{n_features}")
     
     result = majority_vote(features, n_vote)
-    print(f"[Thresholding] Majority vote pixels: {np.sum(result)}")
-    print(f"  HSV: {np.sum(hsv_binary)}, L (x2): {np.sum(l_binary)}, S: {np.sum(s_binary)}, B: {np.sum(b_binary)}" + (f", Grad: {np.sum(grad_binary)}" if include_gradient else "") + (f", YOLOP: {np.sum(yolop_lane_mask)}" if yolop_lane_mask is not None else ""))
+    
+    print(f"[Thresholding] Final combined pixels: {np.sum(result)}")
+    feature_names = ["HSV", "HSV", "L", "S"]
+    if include_b_channel:
+        feature_names.append("B")
+    if include_gradient:
+        feature_names.append("Grad")
+    if yolop_lane_mask is not None:
+        feature_names.append("YOLOP")
+    feature_sums = [np.sum(f) for f in features]
+    print(f"  Feature votes: {dict(zip(feature_names, feature_sums))}")
     return result
 
 
@@ -338,6 +354,8 @@ def apply_thresholds_with_voting(image, src_points=None, debug_display=False, us
         
         if avg_brightness > BRIGHT_THRESHOLD:
             s_thresh = S_THRESH_BRIGHT
+        elif avg_brightness > MEDIUM_BRIGHT_THRESHOLD:
+            s_thresh = S_THRESH_MEDIUM
         elif avg_brightness < DARK_THRESHOLD:
             s_thresh = S_THRESH_DARK
         else:

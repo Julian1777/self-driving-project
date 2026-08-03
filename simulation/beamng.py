@@ -739,11 +739,13 @@ def main():
             throttle = throttle * (1.0 - 0.3 * abs(steering))
             throttle = np.clip(throttle, 0.05, 0.3)
             
-            # Application of the vehicle controls to BeamNG
-            # try:
-            #     vehicle.control(throttle=float(throttle), brake=float(brake), steering=float(steering))
-            # except Exception as e:
-            #     print(f"[Main] Error sending control to vehicle: {e}")
+            #Application of the vehicle controls to BeamNG
+
+
+            try:
+                vehicle.control(throttle=float(throttle), brake=float(brake), steering=float(steering))
+            except Exception as e:
+                print(f"[Main] Error sending control to vehicle: {e}")
                 
             previous_steering = steering
 
