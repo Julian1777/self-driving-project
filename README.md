@@ -175,6 +175,8 @@ The vehicle is equipped with a comprehensive multi-sensor suite for autonomous p
 
 > Configuration files are located in the `/config` directory:
 
+<!--
+
 ## Microservices Architecture
 
 > **Note:** The microservices architecture is documented below as the intended design. **Currently, for active development and rapid iteration, all perception models run locally in-process** (bypassing Docker containers and the aggregator). This allows faster prototyping and validation of the complete pipeline. The containerized microservices will be re-integrated once the core perception, sensor fusion, and control systems are finalized and validated.
@@ -218,7 +220,9 @@ Extract individual results + visualize
 **Modularity**: Add/remove services without modifying BeamNG code  
 **Scalability**: Easy horizontal scaling with container orchestration  
 **Fault Tolerance**: Individual service failures don't break the pipeline  
-**Reusability**: Services can be used independently or together  
+**Reusability**: Services can be used independently or together
+
+-->
 
 ## Roadmap
 
