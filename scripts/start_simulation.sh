@@ -2,6 +2,9 @@
 
 # Get the project root directory (parent of scripts directory)
 PROJECT_ROOT="$(cd "$(dirname "$0")" && cd .. && pwd)"
+
+export PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/ufldv2:$PYTHONPATH"
+
 cd "$PROJECT_ROOT"
 
 python -c "

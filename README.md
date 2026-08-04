@@ -10,9 +10,9 @@
 
 ## Overview
 
-A modular Python project for autonomous driving research and prototyping, fully integrated with the BeamNG.tech simulator and Foxglove visualization. This system combines traditional computer vision algorithms and deep learning (CNN, YOLO) with real-time sensor fusion and autonomous vehicle control to tackle:
+A modular Python project for autonomous driving research and prototyping, fully integrated with the BeamNG.tech simulator and Foxglove visualization. This system combines traditional computer vision algorithms and deep learning (CNN, UFLD) with real-time sensor fusion and autonomous vehicle control to tackle:
 
-- **Multi-Lane Detection**: YOLOP, Traditional CV
+- **Multi-Lane Detection**: UFLD, Traditional CV
 - **Traffic Sign**: Classification & Detection
 - **Traffic Lights**: Classification & Detection
 - **Multi-Class Object Detection**: Vehicles, pedestrians, cyclists and more
@@ -242,11 +242,8 @@ Extract individual results + visualize
   - [ ] Multi-Object Tracking (MOT)
   
 - [x] Lane & Drivable Area Segmentation
-  - [x] Lane detection Fusion (YOLOP / CV)
-  - [x] 🔥 YOLOP integration
-    - [x] Drivable area segmentation
-    - [x] Lane detection (segmentation output)
-    - [x] Object detection
+  - [x] Lane detection Fusion (UFLD / CV)
+  - [x] 🔥 Ultra Fast Lane Detection (UFLD) integration
   - [x] Traditional CV Lane Detection (with Majority Voting & Lighting condition Detection)
     - [x] Improve voting system and add additional features
     - [x] Lighting Condition Detection
@@ -377,15 +374,14 @@ Extract individual results + visualize
 
 **Academic Papers & Research:**
 
-YOLOP/YOLOPX: [Anchor-free multi-task learning network for panoptic driving perception](https://doi.org/10.1016/j.patcog.2023.110152)
+Ultra Fast Deep Lane Detection v2
 ```bibtex
-@article{YOLOPX2024,
-  title={YOLOPX: Anchor-free multi-task learning network for panoptic driving perception},
-  author={Zhan, Jiao and Luo, Yarong and Guo, Chi and Wu, Yejun and Liu, Jingnan},
-  journal={Pattern Recognition},
-  volume={148},
-  pages={110152},
-  year={2024}
+@ARTICLE{qin2022ultrav2,
+  author={Qin, Zequn and Zhang, Pengyi and Li, Xi},
+  journal={IEEE Transactions on Pattern Analysis and Machine Intelligence}, 
+  title={Ultra Fast Deep Lane Detection With Hybrid Anchor Driven Ordinal Classification}, 
+  year={2022},
+  doi={10.1109/TPAMI.2022.3182097}
 }
 ```
 

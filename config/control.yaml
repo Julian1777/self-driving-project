@@ -1,10 +1,10 @@
 control:
 
   steering_pid:
-    Kp: 0.07
-    Ki: 0.0
-    Kd: 0.06
-    Kf: 0.09
+    Kp: 0.10
+    Ki: 0.001
+    Kd: 0.03
+    Kf: 0.015
 
   max_steering_change: 0.22
   target_speed_kph: 50

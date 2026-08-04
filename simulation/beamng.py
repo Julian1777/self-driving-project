@@ -22,11 +22,6 @@ import math
 import cv2
 from scipy.spatial.transform import Rotation as R
 
-#from simulation.perception_client import PerceptionClient
-
-# bypassed docker aggregator setup
-from ultralytics import YOLO
-
 print("[Main] Loading local models...")
 # loaded models locally to bypass docker
 local_models = {}
@@ -35,50 +30,15 @@ local_models['traffic_light'] = YOLO('models/traffic_light/traffic_light_detecti
 local_models['sign_detect'] = YOLO('models/traffic_sign/traffic_sign_detection.pt')
 local_models['sign_classify'] = load_model('models/traffic_sign/traffic_sign_classification.h5')
 
-# initialize yolop model locally
-try:
-    import torch
-    import torchvision.transforms as transforms
-    
-    # Add YOLOP repo to path
-    yolop_repo_path = os.path.join(os.path.dirname(__file__), '..', 'yolopx')
-    sys.path.insert(0, yolop_repo_path)
-    
-    from lib.config import cfg
-    from lib.models import get_net
-    
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    yolop_model = get_net(cfg)
-    checkpoint = torch.load('models/yolop/yolopx.pth', map_location=device)
-    yolop_model.load_state_dict(checkpoint['state_dict'])
-    yolop_model = yolop_model.to(device)
-    yolop_model.eval()
-    
-    normalize = transforms.Normalize(
-        mean=[0.485, 0.456, 0.406], 
-        std=[0.229, 0.224, 0.225]
-    )
-    yolop_transforms = transforms.Compose([
-        transforms.ToTensor(),
-        normalize,
-    ])
-    
-    local_models['yolop_model'] = yolop_model
-    local_models['device'] = device
-    local_models['yolop_transforms'] = yolop_transforms
-    print("[YOLOP] YOLOP model loaded successfully.")
-except Exception as e:
-    print(f"[YOLOP] YOLOP utilities not found: {e}")
+# UFLD model is lazy-loaded in lane detection module (on first frame)
 
 import sys
 sys.modules['__main__'].MODELS = local_models
 
-from src.perception.yolop.main import process_frame as yolop_process
 from src.perception.object_detection.main import process_frame as object_process
 from src.perception.traffic_light_detection.main import process_frame as tl_process
 from src.perception.sign_detection.main import process_frame as sign_process
 from src.perception.lane_detection.main import process_frame_cv as cv_lane_process
-from src.perception.lane_detection.visualization import create_mask_overlay, draw_multiple_lanes_overlay
 from src.perception.lane_detection.cv.perspective import perspective_warp, get_src_points
 
 from src.sensor_fusion.lidar.main import process_frame as lidar_process_frame
@@ -536,12 +496,14 @@ def main():
     enable_obj_det = perception_flags.get('enable_object_detection', True)
     enable_tl_det = perception_flags.get('enable_traffic_light_detection', True)
     enable_sign_det = perception_flags.get('enable_sign_detection', True)
-    enable_yolop_flag = perception_flags.get('enable_yolop', True)
     debug_cv_lane = perception_flags.get('debug_cv_lane_detection', False)
     debug_perspective = perception_flags.get('debug_perspective', False)
-    print(f"[Main] perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} yolop:{enable_yolop_flag} debug:{debug_cv_lane}")
+    print(f"[Main] perception flags - lane:{enable_cv_lane} obj:{enable_obj_det} tl:{enable_tl_det} sign:{enable_sign_det} debug:{debug_cv_lane}")
 
-    steering_pid = PIDController(**control_cfg['steering_pid'])
+    # Enable debug for steering PID to see terms
+    steering_pid_config = control_cfg['steering_pid'].copy()
+    steering_pid_config['debug'] = True
+    steering_pid = PIDController(**steering_pid_config)
     max_steering_change = control_cfg['max_steering_change']
     previous_steering = 0.0
 
@@ -560,6 +522,9 @@ def main():
     frame_count = 0
 
     last_time = time.time()
+    # Simulation runs at 60Hz deterministic, beamng.control.step(10) advances 10 physics steps
+    # Each physics step = 1/60s, so 10 steps = 10/60 = 0.1667s simulation time
+    SIM_DT = 10.0 / 60.0  # 0.1667s per loop iteration
     try:
         step_i = 0
         while True:
@@ -616,38 +581,16 @@ def main():
                     sign_detections, _ = sign_process(img_bgr, confidence_threshold=0.45, draw_detections=False, detection_model=local_models.get('sign_detect'), classification_model=local_models.get('sign_classify'))
                 else:
                     sign_detections = []
-                
-                # added yolop process frame locally, checks flag
-                if enable_yolop_flag:
-                    try:
-                        yolop_detections, drivable_area, yolop_lane_mask = yolop_process(
-                            img_bgr, 
-                            confidence_threshold=0.3, 
-                            model=local_models.get('yolop_model'), 
-                            device=local_models.get('device'), 
-                            transforms=local_models.get('yolop_transforms'),
-                            speed=speed_kph,
-                            calibration_data=None,
-                            vehicle_model='etk800'
-                        )
-                    except Exception as e:
-                        print(f"[YOLOP] Error processing local yolop: {e}")
-                        drivable_area = None
-                        yolop_lane_mask = None
-                else:
-                    drivable_area = None
-                    yolop_lane_mask = None
-                
+
                 if enable_cv_lane:
                     cv_result_image, metrics, cv_confidence = cv_lane_process(
-                        img, 
+                        img,
                         speed=speed_kph,
                         previous_steering=previous_steering,
                         debug_display=debug_cv_lane,
                         perspective_debug_display=debug_perspective,
                         vehicle_model='etk800',
-                        num_lanes=3,
-                        yolop_lane_mask=yolop_lane_mask
+                        num_lanes=3
                     )
                 else:
                     cv_result_image = None
@@ -678,11 +621,18 @@ def main():
                 if fused_confidence is None:
                     fused_confidence = 0.0
                 
+                # Log lane tracking info
+                current_lane = lane_metrics.get('current_lane')
+                if current_lane:
+                    print(f"[MAIN] Tracking: lane={current_lane.get('lane_class', '?')} (ID:{current_lane.get('lane_id', '?')}), pos_in_lane={current_lane.get('position_in_lane', 0):.2f}, deviation={deviation:.3f}m, eff_dev={effective_deviation:.3f}m, steer={steering:.3f}")
+                else:
+                    print(f"[MAIN] No lane tracked, deviation={deviation:.3f}m, eff_dev={effective_deviation:.3f}m")
+            
             except Exception as agg_e:
                 print(f"[Main] Local perception error: {agg_e}")
                 continue
 
-            steering = steering_pid.update(-effective_deviation, dt)
+            steering = steering_pid.update(-effective_deviation, SIM_DT)
             steering = np.clip(steering, -1.0, 1.0)
             steering_change = steering - previous_steering
             if abs(steering_change) > max_steering_change:
@@ -755,31 +705,6 @@ def main():
                 cv_disp = cv2.resize(cv_disp, (0, 0), fx=0.5, fy=0.5)
                 cv2.imshow('CV Lane Detection', cv_disp)
 
-            # display drivable area and lanes with proper overlay visualization
-            img_bgr_for_display = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            yolop_displayed = False
-            
-            img_height = img_bgr_for_display.shape[0]
-            
-            if drivable_area is not None:
-                try:
-                    if drivable_area.size > 0:
-                        drivable_area_roi = drivable_area.copy()
-                        img_bgr_for_display = create_mask_overlay(img_bgr_for_display, drivable_area_roi, alpha=0.1, color=(0, 255, 0))
-                        yolop_displayed = True
-                except Exception as e:
-                    print(f"[Visualization] Error displaying drivable area: {e}")
-            
-            if yolop_lane_mask is not None and np.sum(yolop_lane_mask) > 0:
-                try:
-                    img_bgr_for_display = create_mask_overlay(img_bgr_for_display, yolop_lane_mask, alpha=0.3, color=(255, 0, 0))
-                    yolop_displayed = True
-                except Exception as e:
-                    print(f"[YOLOP] Error drawing YOLOP lane mask: {e}")
-                    
-            if yolop_displayed:
-                yolop_disp = cv2.resize(img_bgr_for_display, (0, 0), fx=0.5, fy=0.5)
-                cv2.imshow('YOLOP - Drivable Area & Lanes', yolop_disp)
 
             # Draw and show Combined object detections window
             try:
