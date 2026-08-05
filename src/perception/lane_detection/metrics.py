@@ -188,7 +188,6 @@ def calculate_curvature_and_deviation(ploty, left_fitx, right_fitx, binary_warpe
             right_curverad = min(right_curverad, max_reasonable_curve)
 
         # Calculate lane center and vehicle deviation
-        # Both lane_center and vehicle_center must be in WARPED pixel coordinates
         lane_center = (left_bottom + right_bottom) / 2.0
         vehicle_center = binary_warped.shape[1] / 2.0  # Warped image center
         

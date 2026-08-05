@@ -34,7 +34,7 @@ A modular Python project for autonomous driving research and prototyping, fully 
     - [Traffic Light Detection \& Classification](#traffic-light-detection--classification-demo)
     - [Lane Detection & Keeping (v2)](#lane-detection--keeping-v2)
     - [Previous Lane Detection & Keeping (v1)](#previous-lane-detection--keeping-v1)
-    - [YOLOP Lane Detection](#yolop-lane-detection)
+    - [Ultra-Fast Lane Detection (UFLD)](#ultra-fast-lane-detection-ufld)
     - [Foxglove Visualization](#foxglove-visualization)
     - [Multi Camera Scene Segmentation](#multi-camera-scene-segmentation)
   - [Sensor Suite](#sensor-suite)
@@ -115,14 +115,14 @@ The original demo is still available for reference:
 
 ---
 
-### YOLOP Lane Detection
-Watch both the raw model segmentation output and the multiple processed lanes on a highway video.
+### Ultra-Fast Lane Detection (UFLD)
+Watch the UFLD perform real-time lane detection with temporal spline smoothing on highway video.
 
-<img src="media/demo_gifs/yolop.gif" alt="YOLOP Lane Detection Demo" width="600" height="337" />
+<img src="media/demo_gifs/ufld_demo.gif" alt="UFLD Lane Detection Demo" width="600" height="337" />
 
-**Extended Demo:** [Watch the full video here](https://youtu.be/CZC2ajqDkuU)
+**Extended Demo:** [Watch the full video here](https://youtu.be/Dkj-diRK334)
 
-> Note: This is not the final integration of the yolop model in VisionPilot. This only serves as a demo of the model's capabilities and use cases for VisionPilot.
+> Note: Because UFLDv2 operates as an internal feature module in VisionPilot's multi-feature voting pipeline, this standalone demo highlights the underlying model's perception capabilities before its output is merged into the final pixel voting matrix.
 
 ---
 
