@@ -76,6 +76,7 @@ Download the pretrained models for object detection, traffic light detection, tr
 
 > **Note:** A first release will come soon with pretrained models. For now, you can train your own models or use publicly available weights.
 
+```text
 models/
 ├── object_detection/
 │   └── object_detection.pt
@@ -86,7 +87,7 @@ models/
 │   └── traffic_sign_classification.h5
 └── ufld/
     └── culane_res18.pth
-
+```
 ### 4. Specify Model Paths
 
 Verify that the model loading section in your main script matches your model directory structure:

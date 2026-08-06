@@ -37,7 +37,7 @@ def filter_close_peaks(peaks, histogram, min_distance=40):
     return sorted(filtered_peaks)
 
 
-def find_lane_boundaries(histogram, num_peaks=4, min_distance=80, min_physical_distance=40, height_threshold=None):
+def find_lane_boundaries(histogram, num_peaks=4, min_distance=80, min_physical_distance=40, height_threshold=None, debug=False):
     """
     Find lane boundaries using peaks in the histogram with physical distance constraints.
 
@@ -47,11 +47,12 @@ def find_lane_boundaries(histogram, num_peaks=4, min_distance=80, min_physical_d
         min_distance: Minimum distance between peaks for find_peaks in pixels (default is 80).
         min_physical_distance: Minimum physical distance (2 meters = 40 pixels at 20px/m scale).
         height_threshold: Minimum height of peaks to be considered valid (default is None, which means no threshold).
+        debug: Enable debug output
 
     returns:
         List of lane boundary positions (x-coordinates) in the image.
     
-
+    
     """
 
     if height_threshold is None:
@@ -59,7 +60,14 @@ def find_lane_boundaries(histogram, num_peaks=4, min_distance=80, min_physical_d
     
     peaks, properties = find_peaks(histogram, distance=min_distance, height=height_threshold)
     
+    if debug:
+        peak_heights = [histogram[p] for p in peaks] if len(peaks) > 0 else []
+        print(f"[MULTI_LANE] Initial peaks: {list(peaks)}, heights: {peak_heights}, threshold={height_threshold:.1f}")
+    
     filtered_peaks = filter_close_peaks(peaks, histogram, min_distance=min_physical_distance)
+    
+    if debug:
+        print(f"[MULTI_LANE] After filter_close_peaks: {filtered_peaks}")
     
     if len(filtered_peaks) >= num_peaks:
         top_peaks = sorted(filtered_peaks, key=lambda x: histogram[x], reverse=True)[:num_peaks]
@@ -68,6 +76,9 @@ def find_lane_boundaries(histogram, num_peaks=4, min_distance=80, min_physical_d
     
     lane_boundaries = sorted(top_peaks)
 
+    if debug:
+        print(f"[MULTI_LANE] Final lane boundaries: {lane_boundaries}")
+    
     return lane_boundaries
 
 def sliding_window_search(binary_warped, start_x, histogram, num_windows=9, window_height=80, margin=100, minpix=50, debug_display=False):
@@ -135,7 +146,7 @@ def sliding_window_search(binary_warped, start_x, histogram, num_windows=9, wind
     }
 
 
-def detect_multiple_lanes(binary_warped, num_lanes=3):
+def detect_multiple_lanes(binary_warped, num_lanes=3, debug=False):
     """
     Detect multiple lanes (current ± 1) from binary warped image.
     
@@ -145,31 +156,35 @@ def detect_multiple_lanes(binary_warped, num_lanes=3):
     Args:
         binary_warped: Binary warped perspective image
         num_lanes: Number of lanes to detect (default 3, creates 4 boundaries)
+        debug: Enable debug output
     
     Returns:
         List of lane data dicts with left_fitx and right_fitx, or None if detection fails
     """
     histogram = np.sum(binary_warped, axis=0)
     
+    if debug:
+        print(f"[MULTI_LANE] Histogram shape: {histogram.shape}, max: {np.max(histogram):.1f}")
+    
     num_peaks = num_lanes + 1
-    lane_boundaries = find_lane_boundaries(histogram, num_peaks=num_peaks)
+    lane_boundaries = find_lane_boundaries(histogram, num_peaks=num_peaks, debug=debug)
     
     if lane_boundaries is not None and len(lane_boundaries) >= num_peaks:
-        print(f"[Multi-Lane] Detected {len(lane_boundaries)} boundaries at: {lane_boundaries}")
+        print(f"[MULTI_LANE] Detected {len(lane_boundaries)} boundaries at: {lane_boundaries}")
     
     if lane_boundaries is None or len(lane_boundaries) < num_peaks:
-        print(f"[Multi-Lane] First attempt found {len(lane_boundaries) if lane_boundaries is not None else 0} peaks, retrying with lower threshold...")
-        lane_boundaries = find_lane_boundaries(histogram, num_peaks=num_peaks, height_threshold=0.1 * np.max(histogram))
+        print(f"[MULTI_LANE] First attempt found {len(lane_boundaries) if lane_boundaries is not None else 0} peaks, retrying with lower threshold...")
+        lane_boundaries = find_lane_boundaries(histogram, num_peaks=num_peaks, height_threshold=0.1 * np.max(histogram), debug=debug)
     
     if lane_boundaries is not None and len(lane_boundaries) >= num_peaks:
-        print(f"[Multi-Lane] Detected {len(lane_boundaries)} boundaries at: {lane_boundaries} (with lower threshold)")
+        print(f"[MULTI_LANE] Detected {len(lane_boundaries)} boundaries at: {lane_boundaries} (with lower threshold)")
     
     if lane_boundaries is None or len(lane_boundaries) < num_peaks:
         return None
     
     boundary_fitx = []
     for boundary_x in lane_boundaries:
-        result = sliding_window_search(binary_warped, start_x=boundary_x, histogram=histogram)
+        result = sliding_window_search(binary_warped, start_x=boundary_x, histogram=histogram, debug_display=debug)
         
         if result is None:
             return None
@@ -191,5 +206,9 @@ def detect_multiple_lanes(binary_warped, num_lanes=3):
             'right_boundary_x': lane_boundaries[i + 1],
         }
         lanes.append(lane_data)
+    
+    if debug:
+        for lane in lanes:
+            print(f"[MULTI_LANE] Lane {lane['lane_id']}: left_boundary={lane['left_boundary_x']}, right_boundary={lane['right_boundary_x']}, width={lane['right_boundary_x'] - lane['left_boundary_x']}")
     
     return lanes if len(lanes) == num_lanes else None
