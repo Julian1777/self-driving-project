@@ -1,8 +1,8 @@
 control:
 
   steering_pid:
-    Kp: 0.10
-    Ki: 0.001
+    Kp: 0.020
+    Ki: 0.0
     Kd: 0.03
     Kf: 0.015
 

@@ -26,6 +26,7 @@ A modular Python project for autonomous driving research and prototyping, fully 
 - [VisionPilot: Autonomous Driving Simulation, Computer Vision \& Real-Time Perception (BeamNG.tech)](#visionpilot-autonomous-driving-simulation-computer-vision--real-time-perception-beamngtech)
   - [Overview](#overview)
   - [Table of Contents](#table-of-contents)
+  - [Usage](#usage)
   - [Demos](#demos)
     - [Multi-Lane Detection Stress Testing](#multi-lane-detection-stress-testing)
     - [Emergency Braking (AEB)](#emergency-braking-aeb-demo)
@@ -46,6 +47,98 @@ A modular Python project for autonomous driving research and prototyping, fully 
   - [License](#license)
 
 
+## Usage
+
+### 1. Download BeamNG.tech
+
+First, download and install BeamNG.tech from the [official website](https://www.beamng.tech/). This is required to run the simulation environment.
+
+### 2. Configure BeamNG Path
+
+Navigate to the `config` directory and update the path to your BeamNG.tech installation in the configuration files.
+
+**Configuration Files Overview:**
+
+| File | Purpose |
+|------|---------|
+| **beamng.yaml** | Main configuration file containing the path to your BeamNG.tech installation. **Required for basic setup** |
+| **config.py** | Python configuration module that loads and manages all YAML settings |
+| **control.yaml** | Steering, throttle, and braking control parameters (PID tuning) |
+| **perception.yaml** | Computer vision pipeline settings (lane detection, object detection thresholds) |
+| **scenarios.yaml** | Simulation scenario definitions and test environments |
+| **sensors.yaml** | Sensor configuration (camera, LiDAR, radar parameters) |
+
+Update **`beamng.yaml`** with your BeamNG.tech installation path. For basic usage, this is the only essential configuration file you need to modify. Advanced users can also customize `sensors.yaml` to adjust sensor parameters.
+
+### 3. Download Pretrained Models
+
+Download the pretrained models for object detection, traffic light detection, traffic sign detection, and classification from the releases page. Place all models in the `models` root folder with the following structure:
+
+> **Note:** A first release will come soon with pretrained models. For now, you can train your own models or use publicly available weights.
+
+models/
+├── object_detection/
+│   └── object_detection.pt
+├── traffic_light/
+│   └── traffic_light_detection.pt
+├── traffic_sign/
+│   ├── traffic_sign_detection.pt
+│   └── traffic_sign_classification.h5
+└── ufld/
+    └── culane_res18.pth
+
+### 4. Specify Model Paths
+
+Verify that the model loading section in your main script matches your model directory structure:
+
+```python
+print("[Main] Loading local models...")
+local_models = {}
+local_models['vehicle'] = YOLO('models/object_detection/object_detection.pt')
+local_models['traffic_light'] = YOLO('models/traffic_light/traffic_light_detection.pt')
+local_models['sign_detect'] = YOLO('models/traffic_sign/traffic_sign_detection.pt')
+local_models['sign_classify'] = load_model('models/traffic_sign/traffic_sign_classification.h5')
+```
+
+Update these paths if your model structure differs from the default.
+
+#### UFLD Lane Detection Model
+
+The Ultra-Fast Lane Detection (UFLD) model requires additional configuration. Open `src/perception/lane_detection/main.py` and verify the model paths:
+
+```python
+model_path = MODELS_DIR / "ufld" / "culane_res18.pth"
+config_path = PROJECT_ROOT / "ufldv2" / "configs" / "culane_res18.py"
+```
+
+Ensure both the model weights (`culane_res18.pth`) and configuration file (`culane_res18.py`) are in the correct locations. Download the UFLD model weights and place them in `models/ufld/`.
+
+You can obtain the UFLD configuration files by:
+
+**Cloning the entire UFLD repository to root (Recommended):**
+```bash
+   git clone https://github.com/cfzd/Ultra-Fast-Lane-Detection-v2.git ufldv2
+```
+   This clones the repository into a `ufldv2/` folder in your project root, making the config files automatically accessible.
+
+### 5. Start the Simulation
+
+Navigate to the `scripts` directory and run the startup script:
+
+Linux/macOS:
+
+```bash
+cd scripts
+./start_simulation.sh
+```
+
+Windows Powershell:
+```bash
+cd scripts
+start_simulation.bat
+```
+
+The simulation will initialize BeamNG.tech, load the perception models, and begin streaming sensor data and AI predictions in real-time.
 
 ## Demos
 
