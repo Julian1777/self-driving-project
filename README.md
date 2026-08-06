@@ -21,6 +21,8 @@ A modular Python project for autonomous driving research and prototyping, fully 
 - **Visualization**: Real-time monitoring with Foxglove WebSocket + multiple CV windows
 - **Configuration System**: YAML-based modular settings
   
+> **Looking Ahead**: While VisionPilot currently runs on BeamNG.tech, integration with the **CARLA Simulator** is planned on our roadmap. If you are interested in helping build the CARLA bridge, PRs are welcome and much appreciated!
+  
 ## Table of Contents
 
 - [VisionPilot: Autonomous Driving Simulation, Computer Vision \& Real-Time Perception (BeamNG.tech)](#visionpilot-autonomous-driving-simulation-computer-vision--real-time-perception-beamngtech)
@@ -351,7 +353,7 @@ Extract individual results + visualize
   - [x] Integrate Lidar
   - [ ] Integrate GPS
   - [ ] Integrate IMU
-  - [ ] Ultrasonic Sensor Integration
+  - [ ] 💤 Ultrasonic Sensor Integration
 
 - [ ] State Estimation & Mapping
   - [ ] Kalman Filtering (Standard & Extended)
@@ -392,6 +394,8 @@ Extract individual results + visualize
 
 - [x] Integrate and test in BeamNG.tech simulation
 - [x] Modularize and clean up BeamNG.tech pipeline
+- [ ] **CARLA Simulator Integration** (Planned / Help Wanted)
+  > *Note: CARLA support is planned for multi-simulator testing, but active development hasn't started yet. PRs and community contributions are very welcome!*
 - [ ] Environmental Conditions (Fog, Night, Dawn/Dusk, Tunnels/Low-Light)
 - [ ] Traffic scenarios (Light, Moderate, Heavy)
 - [ ] 💤 Physical RC Deployment
@@ -421,7 +425,7 @@ Extract individual results + visualize
 
 - [x] Vibe-Code a website for the project
 - [x] Redo project structure for better modularity
-- [ ] README Demo Media
+- [x] README Demo Media
 - [ ] Performance Benchmarks
 - [ ] Documentation
 
@@ -442,6 +446,7 @@ Extract individual results + visualize
 
 ## Known Limitations
 
+- **Simulator Support**: Currently only validated in BeamNG.tech. CARLA simulator integration is planned, but not yet implemented.
 - **Tunnel/Low-Light Scenarios**: Camera perception fails below certain lighting thresholds
 - **Multi-Camera Support**: Single front-facing camera only (future roadmap)
 - **PID Controller Tuning**: May oscillate on tight curves
