@@ -93,16 +93,16 @@ class PerceptionAggregator:
                 health_status[service_name] = is_healthy
                 
                 if is_healthy:
-                    logger.info(f"✓ {service_name}: HEALTHY")
+                    logger.info(f"{service_name}: HEALTHY")
                 else:
-                    logger.warning(f"✗ {service_name}: UNHEALTHY (HTTP {response.status_code})")
+                    logger.warning(f"{service_name}: UNHEALTHY (HTTP {response.status_code})")
                     
             except requests.ConnectionError:
-                logger.error(f"✗ {service_name}: CONNECTION FAILED")
+                logger.error(f"{service_name}: CONNECTION FAILED")
                 health_status[service_name] = False
                 
             except Exception as e:
-                logger.error(f"✗ {service_name}: {type(e).__name__}: {e}")
+                logger.error(f"{service_name}: {type(e).__name__}: {e}")
                 health_status[service_name] = False
         
         all_healthy = all(health_status.values())
@@ -139,19 +139,15 @@ class PerceptionAggregator:
         
         start_time = time.time()
         
-        # Step 1: Prepare payload (convert numpy → JSON-compatible)
         logger.debug(f"Preparing payload for {frame.shape} frame...")
         payload = self._prepare_payload(frame, speed_kph, timestamp_ns, vehicle_pos, vehicle_direction)
         
-        # Step 2: Submit concurrent tasks to all services
         logger.debug(f"Submitting {len(self.service_config)} concurrent requests...")
         futures = self._submit_tasks(payload)
         
-        # Step 3: Collect results as they complete
         logger.debug("Waiting for service responses...")
         results = self._collect_results(futures)
         
-        # Calculate total processing time
         processing_time_ms = (time.time() - start_time) * 1000
         results['processing_time_ms'] = processing_time_ms
         
@@ -179,22 +175,17 @@ class PerceptionAggregator:
         Returns:
             Dict ready to send via JSON over HTTP
         """
-        # Convert numpy array to bytes and base64 encode
-        # This is much more efficient than converting to a list
         logger.debug(f"Encoding frame {frame.shape} to base64...")
         start_convert = time.time()
         
-        # Ensure uint8
         if frame.dtype != np.uint8:
             frame = frame.astype(np.uint8)
         
-        # Convert to bytes
         logger.debug(f"Converting {frame.shape} to bytes...")
         frame_bytes = frame.tobytes()
         step1_time = (time.time() - start_convert) * 1000
         logger.debug(f"  tobytes() took {step1_time:.1f}ms")
         
-        # Encode to base64
         logger.debug(f"Base64 encoding {len(frame_bytes)} bytes...")
         frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
         step2_time = (time.time() - start_convert - step1_time/1000) * 1000
@@ -203,7 +194,6 @@ class PerceptionAggregator:
         convert_time_ms = (time.time() - start_convert) * 1000
         logger.debug(f"Total encoding took {convert_time_ms:.1f}ms (payload size: {len(frame_b64)/1024:.1f}KB)")
         
-        # Build payload
         payload = {
             "frame": frame_b64,
             "frame_shape": list(frame.shape),
@@ -211,7 +201,6 @@ class PerceptionAggregator:
             "timestamp_ns": int(timestamp_ns)
         }
         
-        # Optional fields
         if vehicle_pos is not None:
             payload["vehicle_pos"] = list(vehicle_pos)
         if vehicle_direction is not None:
@@ -235,7 +224,6 @@ class PerceptionAggregator:
         futures = {}
         
         for service_name, endpoint in self.service_config.items():
-            # Submit the request to thread pool
             future = self.executor.submit(
                 self._make_request,
                 service_name,
@@ -284,7 +272,7 @@ class PerceptionAggregator:
                 logger.warning(f"[{service_name}] Timeout on attempt {attempt + 1}")
                 if attempt < self.retry_count - 1:
                     logger.debug(f"[{service_name}] Retrying...")
-                    time.sleep(0.1)  # Small delay before retry
+                    time.sleep(0.1)  # small delay
                     
             except requests.ConnectionError as e:
                 logger.warning(f"[{service_name}] Connection error: {e}")
@@ -300,7 +288,6 @@ class PerceptionAggregator:
                 logger.error(f"[{service_name}] Unexpected error: {type(e).__name__}: {e}")
                 return None
         
-        # All retries failed
         logger.error(f"[{service_name}] Failed after {self.retry_count} attempts")
         return None
     
@@ -322,20 +309,16 @@ class PerceptionAggregator:
         results = {}
         service_status = {}
         
-        # Iterate through futures and collect results
         for service_name, future in futures.items():
             try:
-                # This blocks until the future completes (or we've already waited self.timeout)
                 response = future.result(timeout=self.timeout)  # 1s timeout for getting result from future
                 
                 if response is None:
-                    # Request failed during _make_request
                     logger.debug(f"[{service_name}] Request returned None")
                     results[service_name] = None
                     service_status[service_name] = 'failed'
                     
                 else:
-                    # Parse response JSON
                     try:
                         json_response = response.json()
                         results[service_name] = json_response
@@ -357,7 +340,6 @@ class PerceptionAggregator:
                 results[service_name] = None
                 service_status[service_name] = 'error'
         
-        # Determine overall health
         all_healthy = all(status == 'ok' for status in service_status.values())
         
         return {

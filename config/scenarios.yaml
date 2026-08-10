@@ -21,10 +21,10 @@ maps:
 
     highway:
       scene: "highway"
-      spawn_pos: [ 1277.754, -309.528, 148.114 ]
-      spawn_yaw: -177.997
+      spawn_pos: [ 65.843, 1176.420, 168.909 ]
+      spawn_yaw: -90
 
     city:
       scene: "city"
-      spawn_pos: [ 1422.660, 1333.449, 145.837 ]
-      spawn_yaw: 25.496
+      spawn_pos: [ 120.046, -140.978, 184.093 ]
+      spawn_yaw: -117

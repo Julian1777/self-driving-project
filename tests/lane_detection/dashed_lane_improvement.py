@@ -9,7 +9,7 @@ from src.perception.lane_detection.cv.thresholding import apply_thresholds_with_
 from src.perception.lane_detection.cv.perspective import debug_perspective_live, get_src_points, perspective_warp
 from src.perception.lane_detection.cv.lane_finder import get_histogram, sliding_window_search, detect_lane_type, fill_dashed_lane_gaps
 from src.perception.lane_detection.cv.multi_lane.multi_lane_finder import detect_multiple_lanes, find_lane_boundaries
-from perception.lane_detection.cv.multi_lane.lane_selector import get_current_lane
+from src.perception.lane_detection.cv.multi_lane.lane_selector import get_current_lane
 from src.perception.lane_detection.metrics import calculate_curvature_and_deviation
 
 
@@ -285,7 +285,7 @@ def process_frame_cv(img, speed=0, previous_steering=0, debug_display=False, per
     
 
 if __name__ == "__main__":
-    video_path = "/Users/julian/Documents/github/self-driving-project/nl_highway_curve.mp4"
+    video_path = "C:\\Users\\user\\Documents\\github\\self-driving-car-simulation\\media\\nl_highway_trim.mp4"
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():

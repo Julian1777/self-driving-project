@@ -1,11 +1,11 @@
 from src.perception.object_detection.object_detection import detect_objects
 import cv2
 
-default_threshold = 0.4
+default_threshold = 0.55
 
-def process_frame(img, confidence_threshold=default_threshold, draw_detections=True):
+def process_frame(img, confidence_threshold=default_threshold, draw_detections=True, model=None):
     try:
-        detections = detect_objects(img)
+        detections = detect_objects(img, model=model, confidence_threshold= confidence_threshold)
 
         if not detections:
             detections = []

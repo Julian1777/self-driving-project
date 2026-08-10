@@ -5,7 +5,6 @@ RUN apt-get update && \
     python3 python3-pip python3-opencv git libgl1-mesa-glx curl haveged && \
     rm -rf /var/lib/apt/lists/*
 
-# Start haveged to provide entropy for TensorFlow
 RUN echo "#!/bin/bash\nhaveged -w 1024 &\nexec \"\$@\"" > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 

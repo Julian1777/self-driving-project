@@ -11,7 +11,7 @@ INTRINSIC_MATRIX = np.array([
     [0.0, 0.0, 1.0]
 ])
 
-DISTORTION_COEFFS = np.array([0.0, 0.0, 0.0, 0.0, 0.0])  # Assuming negligible distortion in virtual camera
+DISTORTION_COEFFS = np.array([0.0, 0.0, 0.0, 0.0, 0.0])  # assuming negligible distortion for simplicity
 
 CAMERA_CONFIGS = {
     'q8_andronisk': {
@@ -104,7 +104,6 @@ def get_dynamic_src_points(calibration_data, speed=0, cam_config=None):
     Generates SRC points based on PHYSICAL parameters, not hardcoded pixels.
     """
     if cam_config is None:
-        # Default fallback (e.g. for base car)
         cam_config = {'height': 1.4, 'pitch': 10} # meters, degrees
         
     mtx = calibration_data['mtx']
@@ -112,8 +111,8 @@ def get_dynamic_src_points(calibration_data, speed=0, cam_config=None):
     speed_norm = min(speed / 120.0, 1.0)
     look_ahead_start = 3.0 + (5.0 * speed_norm)
     look_ahead_end   = 15.0 + (20.0 * speed_norm)
-    lane_width_roi   = 3.5 
-    
+    lane_width_roi   = 7.0
+
     world_roi = [
         [-lane_width_roi, look_ahead_start], # BL
         [ lane_width_roi, look_ahead_start], # BR
@@ -165,10 +164,10 @@ def get_src_points(img_shape, speed=0, previous_steering=0, vehicle_model='q8_an
     if vehicle_model == 'etk800':
         # ETK800 specific points
         src = np.float32([
-            [w * 0.15, h],      # Bottom-left
-            [w * 0.85, h],      # Bottom-right
+            [w * 0.15, h*0.8],      # Bottom-left
+            [w * 0.85, h*0.8],      # Bottom-right
             [w * 0.95, h * 0.6],  # Top-right
-            [w * 0.05, h * 0.6]   # Top-left
+            [w * 0.02, h * 0.6]   # Top-left
         ])
     else:  # q8_andronisk (default)
         # Q8 specific points
@@ -181,25 +180,31 @@ def get_src_points(img_shape, speed=0, previous_steering=0, vehicle_model='q8_an
     
     return src
 
-def perspective_warp(img, speed=0, calibration_data=None, vehicle_model='q8_andronisk', cam_height=None, cam_pitch=None):
+def perspective_warp(img, speed=0, calibration_data=None, vehicle_model='q8_andronisk', cam_height=None, cam_pitch=None, interpolation=cv2.INTER_LINEAR, is_mask=False):
     """
     Apply perspective transform to get bird's-eye view.
     
     Args:
-        img: Input image
+        img: Input image or segmentation mask
         speed: Vehicle speed for dynamic adjustment
         calibration_data: Calibration data dictionary
         vehicle_model: Vehicle model ('q8_andronisk' or 'etk800')
         cam_height: Optional camera height override (if not using vehicle_model config)
         cam_pitch: Optional camera pitch override (if not using vehicle_model config)
+        interpolation: Interpolation method (cv2.INTER_LINEAR for images, cv2.INTER_NEAREST for masks)
+        is_mask: If True, uses cv2.INTER_NEAREST for segmentation masks (overrides interpolation param)
     
     Returns:
         binary_warped: Warped image in bird's-eye view
         Minv: Inverse perspective transform matrix
     """
     
+    if is_mask:
+        interpolation = cv2.INTER_NEAREST
+    
     if calibration_data is not None:
-        img = undistort_image(img, calibration_data)
+        if not is_mask and len(img.shape) == 3:
+            img = undistort_image(img, calibration_data)
         mtx = calibration_data.get('mtx')
     else:
         mtx = None
@@ -230,7 +235,7 @@ def perspective_warp(img, speed=0, calibration_data=None, vehicle_model='q8_andr
     M = cv2.getPerspectiveTransform(src, dst)
     Minv = cv2.getPerspectiveTransform(dst, src)
 
-    binary_warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_LINEAR)
+    binary_warped = cv2.warpPerspective(img, M, img_size, flags=interpolation)
     
     return binary_warped, Minv
 
@@ -266,5 +271,6 @@ def debug_perspective_live(img, speed_kph, previous_steering=0, vehicle_model='q
     cv2.putText(debug_img, "Green: Transform Area", (10, 125), 
                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     
-    cv2.imshow('Perspective Transform Debug', debug_img)
+    debug_img_resized = cv2.resize(debug_img, (0, 0), fx=0.5, fy=0.5)
+    cv2.imshow('Perspective Transform Debug', debug_img_resized)
     cv2.waitKey(1)

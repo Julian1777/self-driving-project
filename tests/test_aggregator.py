@@ -69,16 +69,13 @@ def test_process_frame():
             if service_result is None:
                 continue
             
-            vis_frame = frame.copy()  # BGR copy for writing
+            vis_frame = frame.copy()
             
             if service_name == 'yolop':
-                # YOLOP returns segmentation masks instead of bounding boxes
                 if 'drivable_area' in service_result and service_result['drivable_area']:
                     da_mask = np.array(service_result['drivable_area'], dtype=np.uint8)
-                    # Ensure it's 2D
                     if da_mask.ndim == 3:
                         da_mask = da_mask[:, :, 0]
-                    # Create colored overlay for drivable area - green
                     da_overlay = cv2.cvtColor(da_mask, cv2.COLOR_GRAY2BGR)
                     da_overlay[:, :] = [0, 255, 0]  # Green color
                     da_overlay[da_mask == 0] = [0, 0, 0]  # Black where mask is 0
@@ -86,16 +83,13 @@ def test_process_frame():
                 
                 if 'lane_lines' in service_result and service_result['lane_lines']:
                     ll_mask = np.array(service_result['lane_lines'], dtype=np.uint8)
-                    # Ensure it's 2D
                     if ll_mask.ndim == 3:
                         ll_mask = ll_mask[:, :, 0]
-                    # Create colored overlay for lane lines - blue
                     ll_overlay = cv2.cvtColor(ll_mask, cv2.COLOR_GRAY2BGR)
                     ll_overlay[:, :] = [255, 0, 0]  # Blue color
                     ll_overlay[ll_mask == 0] = [0, 0, 0]  # Black where mask is 0
                     vis_frame = cv2.addWeighted(vis_frame, 0.7, ll_overlay, 0.3, 0)
             else:
-                # Draw bounding boxes for other services
                 if 'detections' in service_result and service_result['detections']:
                     for det in service_result['detections']:
                         if 'bbox' in det:
@@ -104,12 +98,10 @@ def test_process_frame():
                             conf = det.get('confidence', 0)
                             cls = det.get('class', 'unknown')
                             
-                            # Draw bounding box
                             cv2.rectangle(vis_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                             label = f"{cls}: {conf:.2f}"
                             cv2.putText(vis_frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             
-            # Save visualization
             output_path = os.path.join(output_dir, f"{service_name}_detections.jpg")
             cv2.imwrite(output_path, vis_frame)
             print(f"  Saved: {output_path}")

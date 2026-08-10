@@ -1,13 +1,27 @@
 from math import cos, sin
 import numpy as np
 
+def get_raw_points(radar_data):
+    if radar_data is None:
+        return []
+    elif isinstance(radar_data, np.ndarray):
+        return radar_data.tolist() if len(radar_data) > 0 else []
+    elif isinstance(radar_data, dict):
+        if 'point_cloud' in radar_data:
+            return radar_data['point_cloud']
+        else:
+            return radar_data.get('points', radar_data.get('readings', []))
+    else:
+        return []
+
 def process_frame(radar_front_sensor, radar_cfg, speed_kph):
     """
     Process radar data for AEB and ACC.
     Returns raw radar data for decision logic in main loop.
     """
-    radar_points = radar_front_sensor.poll()
-    filtered_points = filter_radar(radar_points, radar_cfg)
+    radar_data = radar_front_sensor.poll()
+    raw_points = get_raw_points(radar_data)
+    filtered_points = filter_radar(raw_points, radar_cfg)
 
     converted_points = convert_to_xyz(filtered_points)
 
@@ -77,39 +91,107 @@ def calculate_acc(converted_points, speed_kph, radar_cfg):
 def convert_to_xyz(points):
     converted_points = []
     for point in points:
-        range_dist, doppler_vel, azimuth_angle, elevation_angle, rcs, snr = point
+        try:
+            range_dist = float(point[0])
+            doppler_vel = float(point[1])
+            azimuth_angle = float(point[2])
+            elevation_angle = float(point[3])
+            rcs = float(point[4])
+            
+            if len(point) > 6:
+                metric = float(point[6])
+            else:
+                metric = float(point[5])
 
-        azimuth_angle = np.deg2rad(azimuth_angle)
-        elevation_angle = np.deg2rad(elevation_angle)
+            azimuth_rad = np.deg2rad(azimuth_angle)
+            elevation_rad = np.deg2rad(elevation_angle)
 
-        x = range_dist * cos(elevation_angle) * cos(azimuth_angle)
-        y = range_dist * cos(elevation_angle) * sin(azimuth_angle)
-        z = range_dist * sin(elevation_angle)
+            x = range_dist * cos(elevation_rad) * cos(azimuth_rad)
+            y = range_dist * cos(elevation_rad) * sin(azimuth_rad)
+            z = range_dist * sin(elevation_rad)
 
-        converted_points.append((x, y, z, doppler_vel, rcs, snr))
+            converted_points.append((x, y, z, doppler_vel, rcs, metric))
+        except (ValueError, TypeError, IndexError):
+            continue
 
     return converted_points
 
 
-def filter_radar(radar_data, radar_cfg):
-
-    try:
-        raw_points = radar_data['point_cloud']
-    except KeyError:
-        print("radar missing 'point_cloud' key")
-        raw_points = []
+def filter_radar(raw_points, radar_cfg):
 
     filtered_points = []
+    filtering_cfg = radar_cfg.get('radar_filtering', {})
+    # parameters for filtering
+    max_dist = filtering_cfg.get('max_range', 100.0)
+    min_dist = filtering_cfg.get('min_range', 0.5)
+    min_snr  = filtering_cfg.get('min_snr', 5.0)
+    max_el   = filtering_cfg.get('max_elevation', 5.0)
+    min_el   = filtering_cfg.get('min_elevation', -5.0)
+    max_az   = filtering_cfg.get('max_azumith', 45.0)
+    min_az   = filtering_cfg.get('min_azumith', -45.0)
 
     for point in raw_points:
-        range_dist, doppler_vel, azumith_angle, elevation_angle, rcs, snr = point
 
-        within_range = (range_dist <= radar_cfg['max_distance'] and range_dist >= radar_cfg['min_distance'])
-        strong_signal = (snr >= radar_cfg['min_snr'])
-        elevation = (elevation_angle <= radar_cfg['max_elevation'] and elevation_angle >= radar_cfg['min_elevation'])
-        azumith = (azumith_angle <= radar_cfg['max_azumith'] and azumith_angle >= radar_cfg['min_azumith'])
+        try:
+            # extract point data
+            range_dist = float(point[0])
+            doppler_vel = float(point[1])
+            azimuth_angle = float(point[2])
+            elevation_angle = float(point[3])
+            rcs = float(point[4])
+            
+            if len(point) > 6:
+                quality = float(point[6])
+                strong_signal = (quality >= 0.5)
+            else:
+                snr = float(point[5])
+                strong_signal = (snr >= min_snr)
 
-        if within_range and strong_signal and elevation and azumith:
-            filtered_points.append(point)
+            within_range = (min_dist <= range_dist <= max_dist)
+            elevation = (min_el <= elevation_angle <= max_el)
+            azimuth = (min_az <= azimuth_angle <= max_az)
+
+            if within_range and strong_signal and elevation and azimuth:
+                # keep original point format
+                filtered_points.append(point)
+        except (ValueError, TypeError, IndexError):
+            continue
 
     return filtered_points
+
+def process_bsd_frame(radar_sensor, radar_cfg):
+    """
+    Process radar data for Blind Spot Detection (BSD).
+    Returns True if an object is detected in the blind spot zone.
+    """
+    if radar_sensor is None:
+        return False
+        
+    try:
+        radar_data = radar_sensor.poll()
+        raw_points = get_raw_points(radar_data)
+    except Exception as e:
+        print(f"[BSD] Error polling BSD radar: {e}")
+        return False
+        
+    filtered_points = filter_radar(raw_points, radar_cfg)
+    converted_points = convert_to_xyz(filtered_points)
+
+    return calculate_bsd(converted_points, radar_cfg)
+
+def calculate_bsd(converted_points, radar_cfg):
+    """
+    Returns True if an object is present in the blindspot.
+    """
+    # min and max distance for bsd zone
+    bsd_cfg = radar_cfg.get('bsd', {})
+    bsd_min_dist = bsd_cfg.get('min_distance', 0.5)
+    bsd_max_dist = bsd_cfg.get('max_distance', 8.0)
+    
+    for point in converted_points:
+        x, y, z, doppler_vel, _, _ = point
+        distance = np.sqrt(x**2 + y**2)
+        if bsd_min_dist < distance < bsd_max_dist:
+            return True
+            
+    return False

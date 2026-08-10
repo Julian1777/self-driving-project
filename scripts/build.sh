@@ -5,7 +5,7 @@ echo ""
 
 # Always run from the docker directory for correct context
 SCRIPT_DIR="$(dirname "$0")"
-cd "$SCRIPT_DIR/../docker" || exit 1
+cd "$SCRIPT_DIR/docker"
 
 docker compose build
 
