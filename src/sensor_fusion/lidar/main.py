@@ -1,18 +1,18 @@
-from src.sensor_fusion.lidar.lidar import collect_lidar_data
+from .lidar import collect_lidar_data
 import numpy as np
 
 from .preprocessing import LidarPreprocessor
 
 _preprocessor = LidarPreprocessor()
 
-def process_frame(lidar_sensor, beamng, speed, debug_window=None, vehicle=None, car_position=None, car_direction=None):
+def process_frame(lidar_sensor, speed, debug_window=None, vehicle=None, car_position=None, car_direction=None):
     try:
         lidar_data = lidar_sensor.poll()
         if lidar_data is None:
             print("[Lidar] Warning: LiDAR sensor returned None")
             return {}, []
 
-        point_cloud = collect_lidar_data(beamng, lidar_data)
+        point_cloud = collect_lidar_data(lidar_data)
         if len(point_cloud) == 0:
             print("[Lidar] Warning: Empty LiDAR point cloud")
             return {}, []

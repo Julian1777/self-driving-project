@@ -727,7 +727,7 @@ def main():
             lidar_yaw = car_yaw  # LiDAR has same yaw as vehicle
 
             try:
-                lidar_lane_boundaries, filtered_points = lidar_process_frame(lidar, beamng=beamng, speed=speed_kph, debug_window=None, vehicle=vehicle, car_position=car_pos, car_direction=direction)
+                lidar_lane_boundaries, filtered_points = lidar_process_frame(lidar, speed=speed_kph, debug_window=None, vehicle=vehicle, car_position=car_pos, car_direction=direction)
             except Exception as lidar_e:
                 print(f"[LiDAR] Lidar process error: {lidar_e}")
                 lidar_lane_boundaries = None
