@@ -37,6 +37,9 @@ def apply_deviation_deadzone_and_scaling(smoothed_deviation, dead_zone=0.1, max_
         effective_deviation: Processed deviation ready for control input
     """
 
+    if smoothed_deviation is None:
+        return 0.0
+    
     if abs(smoothed_deviation) < dead_zone:
         effective_deviation = 0.0
     else:
@@ -186,11 +189,7 @@ def calculate_curvature_and_deviation(ploty, left_fitx, right_fitx, binary_warpe
 
         # Calculate lane center and vehicle deviation
         lane_center = (left_bottom + right_bottom) / 2.0
-        
-        if original_image_width is not None:
-            vehicle_center = original_image_width / 2.0
-        else:
-            vehicle_center = binary_warped.shape[1] / 2.0
+        vehicle_center = binary_warped.shape[1] / 2.0  # Warped image center
         
         deviation_pixels = vehicle_center - lane_center
         deviation_m = deviation_pixels * xm_per_pix
@@ -212,15 +211,15 @@ def calculate_curvature_and_deviation(ploty, left_fitx, right_fitx, binary_warpe
         return None, None, None, None, None, None
 
 
-def process_deviation(raw_deviation, alpha=0.45, dead_zone=0.10, max_dev=2.0):
+def process_deviation(raw_deviation, alpha=0.85, dead_zone=0.02, max_dev=1.5):
     """
     Process raw deviation for use in control systems.
     Applies deadzone/scaling FIRST, then smoothing.
     
     Args:
         raw_deviation: Raw deviation value from lane detection
-        alpha: Smoothing factor for exponential smoothing (lower = more smoothing)
-        dead_zone: Minimum deviation threshold
+        alpha: Smoothing factor for exponential smoothing (higher = less smoothing, more responsive)
+        dead_zone: Minimum deviation threshold (reduced for earlier response)
         max_dev: Maximum deviation for scaling
         
     Returns:

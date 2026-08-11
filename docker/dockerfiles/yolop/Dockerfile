@@ -8,22 +8,11 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     git \
     curl \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.10 as default
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
     update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
-
-# Clone YOLOP repository
-RUN git clone https://github.com/jiaoZ7688/YOLOPX.git /app/yolop_repo
-
-# Install YOLOP requirements
-RUN cd /app/yolop_repo && pip install -r requirements.txt && pip install loguru
 
 # Copy requirements
 COPY requirements.txt .

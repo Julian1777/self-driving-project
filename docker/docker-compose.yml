@@ -20,12 +20,12 @@ services:
       dockerfile: docker/dockerfiles/object_detection/Dockerfile
     container_name: "visionpilot_object_detection"
     environment:
-      - MODEL_PATH=/app/models/object_detection/object_detection.pt
+      - MODEL_PATH=/models/object_detection/object_detection.pt
       - PYTHONUNBUFFERED=1
     ports:
       - "5777:5777"
     volumes:
-      - ../models/object_detection:/app/models/object_detection:ro
+      - ../models/object_detection:/models/object_detection:ro
     networks:
       - visionpilot_net
     depends_on:
@@ -50,12 +50,12 @@ services:
       dockerfile: docker/dockerfiles/traffic_light_detection/Dockerfile
     container_name: "visionpilot_traffic_light_detection"
     environment:
-      - MODEL_PATH=/app/models/traffic_light/traffic_light_detection.pt
+      - MODEL_PATH=/models/traffic_light/traffic_light_detection.pt
       - PYTHONUNBUFFERED=1
     ports:
       - "6777:6777"
     volumes:
-      - ../models/traffic_light:/app/models/traffic_light:ro
+      - ../models/traffic_light:/models/traffic_light:ro
     networks:
       - visionpilot_net
     depends_on:
@@ -80,12 +80,12 @@ services:
       dockerfile: docker/dockerfiles/sign_detection/Dockerfile
     container_name: "visionpilot_sign_detection"
     environment:
-      - MODEL_PATH=/app/models/traffic_sign/traffic_sign_detection.pt
+      - MODEL_PATH=/models/traffic_sign/traffic_sign_detection.pt
       - PYTHONUNBUFFERED=1
     ports:
       - "7777:7777"
     volumes:
-      - ../models/traffic_sign:/app/models/traffic_sign:ro
+      - ../models/traffic_sign:/models/traffic_sign:ro
     networks:
       - visionpilot_net
     depends_on:
@@ -110,12 +110,12 @@ services:
       dockerfile: docker/dockerfiles/sign_classification/Dockerfile
     container_name: "visionpilot_sign_classification"
     environment:
-      - MODEL_PATH=/app/models/traffic_sign/traffic_sign_classification.h5
+      - MODEL_PATH=/models/traffic_sign/traffic_sign_classification.h5
       - PYTHONUNBUFFERED=1
     ports:
       - "8777:8777"
     volumes:
-      - ../models/traffic_sign:/app/models/traffic_sign:ro
+      - ../models/traffic_sign:/models/traffic_sign:ro
     networks:
       - visionpilot_net
     depends_on:
@@ -140,12 +140,12 @@ services:
       dockerfile: docker/dockerfiles/yolop/Dockerfile
     container_name: "visionpilot_yolop"
     environment:
-      - MODEL_PATH=/app/models/yolop/yolopx.pth
+      - MODEL_PATH=/models/yolop/yolopx.pth
       - PYTHONUNBUFFERED=1
     ports:
       - "9777:9777"
     volumes:
-      - ../models/yolop:/app/models/yolop:ro
+      - ../models/yolop:/models/yolop:ro
     networks:
       - visionpilot_net
     depends_on:

@@ -1,16 +1,16 @@
 control:
 
   steering_pid:
-    Kp: 0.07
+    Kp: 0.020
     Ki: 0.0
-    Kd: 0.06
-    Kf: 0.09
+    Kd: 0.03
+    Kf: 0.015
 
   max_steering_change: 0.22
   target_speed_kph: 50
   min_gap: 10.0
 
-  speed_control_mode: adaptive # options: 'manual', 'adaptive', 'cruise'
+  speed_control_mode: cruise # options: 'manual', 'adaptive', 'cruise'
 
   speed_pid:
     Kp: 0.02
