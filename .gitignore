@@ -1,4 +1,3 @@
-models/
 videos/
 *.mp4
 *.mov
@@ -14,6 +13,7 @@ __pycache__/
 *.h5
 *.keras
 *.pt
+*.pth
 
 *.pkl
 *.zip
@@ -24,5 +24,12 @@ __pycache__/
 beamng_sim/debug_output_old/
 beamng_sim/object/object_detection.ipynb
 DIRECTORY_STRUCTURE.md
-ufldv2/
 src/perception/lane_detection/ufld/demo.py
+
+local_media/
+
+training/
+
+# For now
+docker/
+services/

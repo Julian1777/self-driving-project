@@ -24,8 +24,8 @@ def _get_ufld_model():
     """Lazy-load UFLDv2 model on first use."""
     global _ufld_model
     if _ufld_model is None:
-        model_path = MODELS_DIR / "ufld" / "culane_res18.pth"
-        config_path = Path(__file__).parent.parent.parent.parent / "ufldv2" / "configs" / "culane_res18.py"
+        model_path = MODELS_DIR / "ufld" / "ufld_culane_res18.pth"
+        config_path = Path(__file__).parent.parent.parent.parent / "ufldv2" / "configs" / "ufld_culane_res18.py"
 
         try:
             _ufld_model = UFLDv2Inference(str(model_path), str(config_path))

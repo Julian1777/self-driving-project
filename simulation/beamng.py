@@ -388,19 +388,19 @@ def draw_combined_detections(img, sign_detections, vehicle_detections, tl_detect
         
     return result_img
 
-def cruise_control(target_speed_kph, current_speed_kph, speed_pid, dt):
+def cruise_control(target_speed_kph, current_speed_kph, speed_pid, SIM_DT):
     """
     Simple cruise control to maintain target speed using PID controller.
     Args:
         target_speed_kph (float): Desired speed in kph
         current_speed_kph (float): Current speed in kph
         speed_pid (PIDController): PID controller instance for speed
-        dt (float): Time delta in seconds
+        SIM_DT (float): Simulation time delta in seconds
     Returns:
         float: Throttle value between 0.0 and 1.0
     """
     speed_error = target_speed_kph - current_speed_kph
-    throttle = speed_pid.update(speed_error, dt)
+    throttle = speed_pid.update(speed_error, SIM_DT)
     throttle = np.clip(throttle, 0.0, 1.0)
     return throttle
 
@@ -528,9 +528,6 @@ def main():
     try:
         step_i = 0
         while True:
-            current_time = time.time()
-            dt = current_time - last_time
-            last_time = current_time
 
             try:
                 beamng.control.step(10)
@@ -624,7 +621,7 @@ def main():
                 # Log lane tracking info
                 current_lane = lane_metrics.get('current_lane')
                 if current_lane:
-                    print(f"[MAIN] Tracking: lane={current_lane.get('lane_class', '?')} (ID:{current_lane.get('lane_id', '?')}), pos_in_lane={current_lane.get('position_in_lane', 0):.2f}, deviation={deviation:.3f}m, eff_dev={effective_deviation:.3f}m, steer={steering:.3f}")
+                    print(f"[MAIN] Tracking: lane={current_lane.get('lane_class', '?')} (ID:{current_lane.get('lane_id', '?')}), pos_in_lane={current_lane.get('position_in_lane', 0):.2f}, deviation={deviation:.3f}m, eff_dev={effective_deviation:.3f}m")
                 else:
                     print(f"[MAIN] No lane tracked, deviation={deviation:.3f}m, eff_dev={effective_deviation:.3f}m")
             
@@ -663,21 +660,21 @@ def main():
                     elif ttc < float('inf'):
                         # Reduce throttle
                         print(f"[AEB] WARNING: TTC {ttc:.2f}s, Distance {closest_distance:.2f}m")
-                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt) * 0.5
+                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, SIM_DT) * 0.5
                         brake = 0.0
                     else:
                         # No object detected normal cruise control
-                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
+                        throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, SIM_DT)
                         brake = 0.0
                     
                 except Exception as radar_e:
                     print(f"[AEB] Radar processing error: {radar_e}")
-                    throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
+                    throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, SIM_DT)
                     brake = 0.0
 
             elif speed_control_mode == 'cruise':
                 # Normal cruise control (no adaptive features)
-                throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, dt)
+                throttle = cruise_control(target_speed_kph, speed_kph, speed_pid, SIM_DT)
                 brake = 0.0
 
             elif speed_control_mode == 'none':
@@ -686,11 +683,13 @@ def main():
                 brake = 0.0
             
             # Limit throttle based on steering angle to prevent spinning out
-            throttle = throttle * (1.0 - 0.3 * abs(steering))
-            throttle = np.clip(throttle, 0.05, 0.3)
+            if speed_control_mode == 'none':
+                throttle = 0.0
+            else:
+                throttle *= (1.0 - 0.3 * abs(steering))
+                throttle = float(np.clip(throttle, 0.0, 0.3))
             
             #Application of the vehicle controls to BeamNG
-
 
             try:
                 vehicle.control(throttle=float(throttle), brake=float(brake), steering=float(steering))
@@ -763,7 +762,7 @@ def main():
                     speed_kph=speed_kph,
                     steering=steering,
                     throttle=throttle,
-                    brake=0.0
+                    brake=brake
                 )
             except Exception as control_send_e:
                 print(f"[Foxglove] Error sending vehicle control to Foxglove: {control_send_e}")

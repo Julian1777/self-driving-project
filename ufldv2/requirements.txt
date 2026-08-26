@@ -1,0 +1,8 @@
+opencv-python
+tqdm
+tensorboard
+addict
+sklearn
+pathspec
+imagesize
+ujson

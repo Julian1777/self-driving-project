@@ -88,7 +88,7 @@ models/
 │   ├── traffic_sign_detection.pt
 │   └── traffic_sign_classification.h5
 └── ufld/
-    └── culane_res18.pth
+    └── ufld_culane_res18.pth
 ```
 ### 4. Specify Model Paths
 
@@ -107,22 +107,14 @@ Update these paths if your model structure differs from the default.
 
 #### UFLD Lane Detection Model
 
-The Ultra-Fast Lane Detection (UFLD) model requires additional configuration. Open `src/perception/lane_detection/main.py` and verify the model paths:
+VisionPilot includes the required UFLDv2 code and configuration files. No separate UFLDv2 repository is required.
+
+In `src/perception/lane_detection/main.py`, verify:
 
 ```python
-model_path = MODELS_DIR / "ufld" / "culane_res18.pth"
-config_path = PROJECT_ROOT / "ufldv2" / "configs" / "culane_res18.py"
+model_path = MODELS_DIR / "ufld" / "ufld_culane_res18.pth"
 ```
-
-Ensure both the model weights (`culane_res18.pth`) and configuration file (`culane_res18.py`) are in the correct locations. Download the UFLD model weights and place them in `models/ufld/`.
-
-You can obtain the UFLD configuration files by:
-
-**Cloning the entire UFLD repository to root (Recommended):**
-```bash
-   git clone https://github.com/cfzd/Ultra-Fast-Lane-Detection-v2.git ufldv2
-```
-   This clones the repository into a `ufldv2/` folder in your project root, making the config files automatically accessible.
+Ensure the `ufld_culane_res18.pth` model weights are available before running the simulation.
 
 ### 5. Start the Simulation
 
