@@ -74,9 +74,9 @@ Update **`beamng.yaml`** with your BeamNG.tech installation path. For basic usag
 
 ### 3. Download Pretrained Models
 
-Download the pretrained models for object detection, traffic light detection, traffic sign detection, and classification from the releases page. Place all models in the `models` root folder with the following structure:
+Download the pretrained models for object detection, traffic light detection, traffic sign detection, and classification from the **[VisionPilot v0.1.0-alpha Release](https://github.com/visionpilot-project/VisionPilot/releases/tag/v0.1.0-alpha)**. Extract the downloaded model package into the `models` root folder with the following structure:
 
-> **Note:** A first release will come soon with pretrained models. For now, you can train your own models or use publicly available weights.
+> **Note:** Pretrained models are provided with the **v0.1.0-alpha release**. Download the `visionpilot-v0.1.0-models.zip` package from the release assets and extract its contents into the `models` folder.
 
 ```text
 models/
@@ -358,7 +358,6 @@ Extract individual results + visualize
 - [ ] Low Level Motion Control
   - [x] Vehicle Control integration (Throttle, Steering, Braking)
   - [x] Integrate PIDF controller for steering and speed control
-    - [ ] Improve PIDF controller tuning
   - [ ] 💤 Model Predictive Control (MPC) for more advanced control strategies
 
 - [ ] Safety & Driving Assist
@@ -420,8 +419,7 @@ Extract individual results + visualize
 - [x] README Demo Media
 - [ ] Performance Benchmarks
 - [ ] Documentation
-
-> Driver Monitoring would've been pretty cool but human drivers are not implemented in BeamNG.tech or Carla
+- [x] First release with pre-trained models
 
 ## Legend
 
